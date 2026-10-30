@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Portfolio</title>
+<meta name="description" content="Portfolio">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400;12..96,700;12..96,800&family=DM+Sans:wght@400;500;700&family=Fraunces:opsz,wght@9..144,400;9..144,700&family=Instrument+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+<a class="skip" href="#work">Skip to work</a>
+
+<header class="top">
+  <h1 id="name" class="name"></h1>
+  <div class="intro">
+    <p id="tagline" class="tagline"></p>
+    <p id="bio" class="bio"></p>
+    <ul id="meta" class="meta"></ul>
+  </div>
+</header>
+
+<main id="work" class="work" aria-label="Work"></main>
+
+<footer class="foot">
+  <span id="year"></span>
+  <button id="ownerBtn" class="quiet" type="button">Owner sign in</button>
+</footer>
+
+<div id="bar" class="bar" hidden>
+  <span>Editing mode</span>
+  <button id="addBtn" type="button">Add work</button>
+  <button id="siteBtn" type="button">Edit site</button>
+  <button id="outBtn" type="button" class="ghost">Sign out</button>
+</div>
+
+<dialog id="loginDlg">
+  <form id="loginForm">
+    <h2>Owner sign in</h2>
+    <label>Passcode<input id="pass" type="password" autocomplete="current-password" required></label>
+    <p class="err" id="loginErr" role="alert"></p>
+    <div class="actions"><button type="button" class="ghost" data-close>Cancel</button><button type="submit">Sign in</button></div>
+  </form>
+</dialog>
+
+<dialog id="workDlg">
+  <form id="workForm">
+    <h2 id="workTitle">Add work</h2>
+    <label>Title<input name="title" maxlength="120" required></label>
+    <label>Description<textarea name="description" rows="3" maxlength="1000"></textarea></label>
+    <label>Link (optional)<input name="link" type="url" placeholder="https://"></label>
+    <label>File: image, video, audio or PDF, up to 100 MB<input name="file" type="file" accept="image/jpeg,image/png,image/webp,image/gif,video/mp4,video/webm,audio/mpeg,audio/wav,application/pdf"></label>
+    <p class="hint" id="fileHint"></p>
+    <p class="err" id="workErr" role="alert"></p>
+    <div class="actions"><button type="button" class="ghost" data-close>Cancel</button><button type="submit" id="workSave">Save work</button></div>
+  </form>
+</dialog>
+
+<dialog id="siteDlg">
+  <form id="siteForm">
+    <h2>Edit site</h2>
+    <label>Name<input name="name" maxlength="80" required></label>
+    <label>One-line tagline<input name="tagline" maxlength="160"></label>
+    <label>About you<textarea name="bio" rows="5" maxlength="2000"></textarea></label>
+    <div class="two">
+      <label>Location<input name="location" maxlength="80"></label>
+      <label>Email<input name="email" type="email" maxlength="120"></label>
+    </div>
+    <label>Links, one per line as Label | https://address<textarea name="links" rows="3" placeholder="Instagram | https://instagram.com/you"></textarea></label>
+    <div class="two">
+      <label>Accent colour<input name="accent" type="color"></label>
+      <label>Mode<select name="mode"><option value="light">Light</option><option value="dark">Dark</option></select></label>
+    </div>
+    <label>Headline font<select name="font"><option value="bricolage">Bricolage Grotesque (bold sans)</option><option value="fraunces">Fraunces (soft serif)</option><option value="dmsans">DM Sans (clean sans)</option></select></label>
+    <p class="err" id="siteErr" role="alert"></p>
+    <div class="actions"><button type="button" class="ghost" data-close>Cancel</button><button type="submit">Save changes</button></div>
+  </form>
+</dialog>
+
+<dialog id="viewDlg" class="view"><button class="close" type="button" data-close aria-label="Close">Close</button><div id="viewBody"></div></dialog>
+
+<script src="/app.js"></script>
+</body>
+</html>
