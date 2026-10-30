@@ -2,48 +2,27 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Portfolio</title>
-<meta name="description" content="Portfolio">
-<meta property="og:type" content="website">
-<meta property="og:title" content="Portfolio">
-<meta property="og:description" content="Portfolio">
-<meta name="twitter:card" content="summary_large_image">
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400;12..96,700;12..96,800&family=DM+Sans:wght@400;500;700&family=Fraunces:opsz,wght@9..144,400;9..144,700&family=Instrument+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Pixel Decorations</title>
 <link rel="stylesheet" href="/style.css">
-<link rel="stylesheet" href="/site.css">
 </head>
-<body>
-<div id="bg" class="bg" aria-hidden="true"></div>
-<canvas id="fx" aria-hidden="true"></canvas>
-
-<main class="stage">
-  <section class="card" aria-label="Profile">
-    <img id="avatar" class="avatar" alt="" hidden>
-    <h1 id="name" class="pname"></h1>
-    <p id="tagline" class="ptag"></p>
-    <p id="bio" class="pbio"></p>
-    <ul id="links" class="plinks"></ul>
-    <div class="prow"><span id="loc"></span><span id="views"></span><button id="music" class="ghost small" type="button" hidden>Play music</button></div>
-  </section>
-</main>
-
-<section id="workWrap" class="work-wrap" hidden>
-  <h2 class="work-h">Work</h2>
-  <div id="work" class="work" aria-label="Work"></div>
+<body class="showav">
+<header class="top"><img id="me" class="me" alt="" hidden><div><h1 id="title">Pixel Decorations</h1><p id="subtitle"></p></div></header>
+<section class="tools">
+  <input id="q" type="search" placeholder="Search…" autocomplete="off">
+  <label class="tog"><input id="av" type="checkbox" checked> Preview on avatar</label>
 </section>
-
-<footer class="foot"><span id="year"></span></footer>
-
-<dialog id="viewDlg" class="view" aria-label="Image viewer">
-  <button class="close" type="button" data-close aria-label="Close">Close</button>
-  <button id="prev" class="navbtn l" type="button" aria-label="Previous image">&lsaquo;</button>
-  <button id="next" class="navbtn r" type="button" aria-label="Next image">&rsaquo;</button>
-  <figure id="viewBody"></figure>
-</dialog>
-<noscript><p style="padding:24px">This page needs JavaScript to load.</p></noscript>
-<script src="/app.js"></script>
+<nav id="chips" class="chips"></nav>
+<main id="grid"></main>
+<footer class="foot"><span id="count"></span><a href="/admin">Admin</a></footer>
+<div id="modal" class="modal" hidden>
+  <div class="sheet">
+    <button class="x" id="close" aria-label="Close">&times;</button>
+    <div class="stage"><div class="av"></div><img id="mimg" alt=""></div>
+    <h2 id="mtitle"></h2><p id="mset"></p>
+    <div class="row"><a id="mdl" class="btn" download>Download</a><button id="mcopy" class="btn ghost">Copy link</button></div>
+  </div>
+</div>
+<script src="/gallery.js"></script>
 </body>
 </html>

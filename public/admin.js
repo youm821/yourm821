@@ -1,240 +1,180 @@
-const $ = (s, r = document) => r.querySelector(s);
-const el = (tag, props = {}, ...kids) => {
-  const n = Object.assign(document.createElement(tag), props);
-  kids.flat().forEach((k) => n.append(k));
-  return n;
-};
-let site = null;
-let token = localStorage.getItem('portfolio-token') || '';
-let editingId = null;
+const $ = s => document.querySelector(s);
+const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
+const S = { items: [], sel: new Set() };
 
-async function api(url, opts = {}) {
-  const headers = { ...(opts.headers || {}) };
-  if (token) headers.Authorization = 'Bearer ' + token;
-  const res = await fetch(url, { ...opts, headers });
-  const data = await res.json().catch(() => ({}));
-  if (res.status === 401 && token) signOut();
-  if (!res.ok) throw new Error(data.error || 'Something went wrong. Try again.');
-  return data;
+async function api(method, url, body) {
+  const opt = { method, credentials: 'same-origin', headers: {} };
+  if (body !== undefined) { opt.headers['Content-Type'] = 'application/json'; opt.body = JSON.stringify(body); }
+  const r = await fetch(url, opt);
+  const d = await r.json().catch(() => ({}));
+  if (r.status === 401 && url !== '/api/login') { showLogin(); throw new Error('Login required'); }
+  if (!r.ok) throw new Error(d.error || 'Something went wrong');
+  return d;
 }
-const json = (method, body) => ({ method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
-const thumbUrl = (w) => '/uploads/' + encodeURIComponent(w.file);
+const say = (id, text, kind) => { const m = $(id); m.textContent = text || ''; m.className = 'msg' + (kind ? ' ' + kind : ''); };
 
-function theme() {
-  const r = document.documentElement, t = site.theme;
-  r.style.setProperty('--accent', t.accent);
-  r.dataset.mode = t.mode;
-  r.dataset.font = t.font;
-  const n = parseInt(t.accent.slice(1), 16);
-  const lum = (0.299 * (n >> 16) + 0.587 * ((n >> 8) & 255) + 0.114 * (n & 255)) / 255;
-  r.style.setProperty('--on-accent', lum > 0.62 ? '#111' : '#fff');
+function showLogin() { $('#app').hidden = true; $('#login').hidden = false; $('#pw').focus(); }
+async function boot() {
+  const me = await (await fetch('/api/me', { credentials: 'same-origin' })).json();
+  if (!me.admin) { showLogin(); if (!me.configured) say('#lmsg', 'ADMIN_PASSWORD is not set on the server yet.', 'err'); return; }
+  $('#login').hidden = true; $('#app').hidden = false;
+  await refresh();
+  loadSync(); setInterval(loadSync, 15000); loadPhotos();
 }
-
-function signOut() {
-  token = '';
-  localStorage.removeItem('portfolio-token');
-  show();
-}
-
-function show() {
-  theme();
-  $('#login').hidden = !!token;
-  $('#dash').hidden = !token;
-  if (token) { fillSettings(); renderList(); }
-}
-
-/* ---------- sign in ---------- */
-$('#loginForm').addEventListener('submit', async (e) => {
-  e.preventDefault();
+async function loadSync() {
   try {
-    const d = await api('/api/login', json('POST', { passcode: $('#pass').value }));
-    token = d.token;
-    localStorage.setItem('portfolio-token', token);
-    $('#pass').value = '';
-    $('#loginErr').textContent = '';
-    show();
-  } catch (err) { $('#loginErr').textContent = err.message; }
-});
-$('#outBtn').addEventListener('click', signOut);
+    const d = await api('GET', '/api/sync'); const box = $('#c-status');
+    if (!d.on) { box.textContent = 'Off. Your uploads live only on this server. See the README to switch on the GitHub backup (free).'; $('#c-now').hidden = true; return; }
+    $('#c-now').hidden = false;
+    const when = d.last ? new Date(d.last).toLocaleString() : 'not yet';
+    box.textContent = (d.error ? 'Problem: ' + d.error : 'On, saving to ' + d.repo + ' (' + d.branch + ').') + (d.pending ? ' Saving…' : ' Last saved: ' + when + '.');
+    box.style.color = d.error ? '#ff7b86' : 'var(--mute)';
+  } catch { /* logged out */ }
+}
+$('#c-now').onclick = async () => { try { await api('POST', '/api/sync', {}); say('#c-msg', 'Started. This can take a minute if you have many uploads.', 'ok'); setTimeout(loadSync, 2000); } catch (e) { say('#c-msg', e.message, 'err'); } };
+async function login() {
+  try { await api('POST', '/api/login', { password: $('#pw').value }); $('#pw').value = ''; say('#lmsg', ''); boot(); }
+  catch (e) { say('#lmsg', e.message, 'err'); }
+}
+$('#go').onclick = login;
+$('#pw').onkeydown = e => { if (e.key === 'Enter') login(); };
+$('#logout').onclick = async () => { await api('POST', '/api/logout', {}).catch(() => {}); showLogin(); };
 
-/* ---------- add work (one request per file) ---------- */
-$('#addForm').addEventListener('submit', async (e) => {
-  e.preventDefault();
-  const f = e.target, fe = f.elements;
-  const files = [...fe.files.files];
-  const jobs = files.length ? files : [null];
-  const status = $('#addStatus'), btn = $('#addBtn');
-  status.className = 'status';
-  btn.disabled = true;
-  let ok = 0;
-  const failed = [];
-  for (let i = 0; i < jobs.length; i++) {
-    const file = jobs[i];
-    status.textContent = jobs.length > 1 ? 'Uploading ' + (i + 1) + ' of ' + jobs.length + '...' : 'Uploading...';
-    const fd = new FormData();
-    const fromName = file ? file.name.replace(/\.[^.]+$/, '').replace(/[-_]+/g, ' ') : '';
-    fd.append('title', jobs.length === 1 && fe.title.value.trim() ? fe.title.value : fromName || 'Untitled');
-    fd.append('description', fe.description.value);
-    fd.append('link', fe.link.value);
-    if (file) fd.append('file', file);
-    try { await api('/api/works', { method: 'POST', body: fd }); ok++; }
-    catch (err) { failed.push((file ? file.name : 'Entry') + ': ' + err.message); }
+async function refresh() {
+  const d = await api('GET', '/api/admin/items');
+  S.items = d.items;
+  $('#s-title').value = d.settings.title; $('#s-sub').value = d.settings.subtitle || '';
+  const sets = [...new Set(S.items.map(i => i.set))];
+  $('#sets').replaceChildren(...sets.map(s => { const o = el('option'); o.value = s; return o; }));
+  const cur = $('#f-set').value;
+  $('#f-set').replaceChildren(...['All sets', ...sets].map(s => { const o = el('option', '', s); o.value = s === 'All sets' ? '' : s; return o; }));
+  $('#f-set').value = sets.includes(cur) ? cur : '';
+  const ids = new Set(S.items.map(i => i.id)); S.sel = new Set([...S.sel].filter(x => ids.has(x)));
+  draw();
+}
+function shown() {
+  const q = $('#f-q').value.toLowerCase(), s = $('#f-set').value;
+  return S.items.filter(i => (!s || i.set === s) && (!q || (i.title + ' ' + i.set).toLowerCase().includes(q)));
+}
+function draw() {
+  const list = shown(), g = $('#agrid'); g.replaceChildren();
+  $('#n').textContent = `(${S.items.length})`;
+  $('#selcount').textContent = S.sel.size ? S.sel.size + ' selected' : '';
+  for (const i of list) {
+    const c = el('div', 'acard' + (S.sel.has(i.id) ? ' sel' : '') + (i.hidden ? ' hid' : ''));
+    const st = el('div', 'stage'); st.append(el('div', 'av')); const img = el('img'); img.src = i.src; img.alt = ''; img.loading = 'lazy'; st.append(img);
+    const top = el('div', 'r'); const cb = el('input'); cb.type = 'checkbox'; cb.checked = S.sel.has(i.id);
+    cb.onchange = () => { cb.checked ? S.sel.add(i.id) : S.sel.delete(i.id); c.classList.toggle('sel', cb.checked); $('#selcount').textContent = S.sel.size ? S.sel.size + ' selected' : ''; };
+    top.append(cb, el('span', '', i.hidden ? 'hidden' : ''));
+    const t = el('input'); t.type = 'text'; t.value = i.title; t.maxLength = 80;
+    const s = el('input'); s.type = 'text'; s.value = i.set; s.maxLength = 40; s.setAttribute('list', 'sets');
+    const save = async (field, input) => {
+      if (input.value.trim() === i[field] || !input.value.trim()) { input.value = i[field]; return; }
+      try { const u = await api('PATCH', '/api/items/' + i.id, { [field]: input.value }); Object.assign(i, u); if (field === 'set') refresh(); }
+      catch (e) { say('#a-msg', e.message, 'err'); }
+    };
+    t.onchange = () => save('title', t); s.onchange = () => save('set', s);
+    const row = el('div', 'r');
+    const hide = el('button', 'btn ghost sm', i.hidden ? 'Show' : 'Hide');
+    hide.onclick = async () => { const u = await api('PATCH', '/api/items/' + i.id, { hidden: !i.hidden }); Object.assign(i, u); draw(); };
+    const del = el('button', 'btn danger sm', 'Delete');
+    del.onclick = async () => { if (!confirm('Delete "' + i.title + '"?')) return; await api('DELETE', '/api/items/' + i.id); refresh(); };
+    row.append(hide, del);
+    c.append(st, top, t, s, row); g.append(c);
   }
-  btn.disabled = false;
-  if (ok) { site = await api('/api/site'); renderList(); }
-  if (failed.length) {
-    status.className = 'status bad';
-    status.textContent = ok + ' uploaded. ' + failed.length + ' failed:\n' + failed.join('\n');
-  } else {
-    status.textContent = ok + (ok === 1 ? ' item added.' : ' items added.');
-    f.reset();
-  }
-});
+  if (!list.length) g.append(el('div', 'empty', 'Nothing matches.'));
+}
+$('#f-q').oninput = draw; $('#f-set').onchange = draw;
+$('#selall').onclick = () => { shown().forEach(i => S.sel.add(i.id)); draw(); };
+$('#selnone').onclick = () => { S.sel.clear(); draw(); };
 
-/* ---------- list, edit, delete ---------- */
-function renderList() {
-  const box = $('#list');
-  box.replaceChildren();
-  if (!site.works.length) { box.append(el('p', { className: 'status', textContent: 'Nothing here yet. Add your first piece above.' })); return; }
-  site.works.forEach((w) => {
-    const thumb = w.kind === 'image'
-      ? el('img', { className: 'thumb', src: thumbUrl(w), alt: '', loading: 'lazy' })
-      : el('div', { className: 'thumb', textContent: w.kind ? w.kind.toUpperCase() : 'Text' });
-    const edit = el('button', { className: 'ghost small', type: 'button', textContent: 'Edit' });
-    const del = el('button', { className: 'ghost small', type: 'button', textContent: 'Delete' });
-    edit.addEventListener('click', () => openEdit(w));
-    del.addEventListener('click', () => removeWork(w));
-    box.append(el('div', { className: 'rowitem' }, thumb,
-      el('div', {}, el('strong', { textContent: w.title }), el('small', { textContent: w.description || (w.kind || 'text only') })),
-      el('div', { className: 'btns' }, edit, del)));
+async function bulk(action, extra = {}) {
+  if (!S.sel.size) return say('#a-msg', 'Select some items first.', 'err');
+  if (action === 'delete' && !confirm('Delete ' + S.sel.size + ' items for good?')) return;
+  try { const r = await api('POST', '/api/bulk', { ids: [...S.sel], action, ...extra }); say('#a-msg', r.count + ' updated.', 'ok'); if (action === 'delete') S.sel.clear(); await refresh(); }
+  catch (e) { say('#a-msg', e.message, 'err'); }
+}
+$('#b-move').onclick = () => bulk('move', { set: $('#b-set').value });
+$('#b-hide').onclick = () => bulk('hide'); $('#b-show').onclick = () => bulk('show'); $('#b-del').onclick = () => bulk('delete');
+
+$('#s-save').onclick = async () => {
+  try { await api('PUT', '/api/settings', { title: $('#s-title').value, subtitle: $('#s-sub').value }); say('#s-msg', 'Saved.', 'ok'); }
+  catch (e) { say('#s-msg', e.message, 'err'); }
+};
+
+async function upload(files) {
+  files = [...files]; if (!files.length) return say('#u-msg', 'Choose files first.', 'err');
+  const fd = new FormData(); fd.append('set', $('#u-set').value || 'Uploads');
+  for (const f of files) fd.append('files', f);
+  say('#u-msg', 'Uploading ' + files.length + '…');
+  try {
+    const r = await fetch('/api/upload', { method: 'POST', body: fd, credentials: 'same-origin' });
+    const d = await r.json().catch(() => ({}));
+    if (r.status === 401) return showLogin();
+    if (!r.ok) throw new Error(d.error || 'Upload failed');
+    say('#u-msg', d.added.length + ' added' + (d.rejected.length ? '. Skipped: ' + d.rejected.join(', ') : '.'), d.added.length ? 'ok' : 'err');
+    $('#u-files').value = ''; await refresh();
+  } catch (e) { say('#u-msg', e.message, 'err'); }
+}
+$('#u-go').onclick = () => upload($('#u-files').files);
+const drop = $('#drop');
+['dragenter', 'dragover'].forEach(ev => drop.addEventListener(ev, e => { e.preventDefault(); drop.classList.add('over'); }));
+['dragleave', 'drop'].forEach(ev => drop.addEventListener(ev, e => { e.preventDefault(); drop.classList.remove('over'); }));
+drop.addEventListener('drop', e => upload(e.dataTransfer.files));
+boot();
+
+// ---------- profile photos ----------
+async function loadPhotos() {
+  const d = await api('GET', '/api/admin/photos');
+  const box = $('#photos'); box.replaceChildren();
+  const active = d.photos.find(p => p.active);
+  if (active) document.documentElement.style.setProperty('--photo-bg', `url("${active.src}") center/cover no-repeat`);
+  else document.documentElement.style.removeProperty('--photo-bg');
+  if (!d.photos.length) box.append(el('div', 'empty', 'No photo yet. Add one below.'));
+  for (const p of d.photos) {
+    const w = el('div', 'ph' + (p.active ? ' on' : '')); const im = el('img'); im.src = p.src; im.alt = '';
+    const row = el('div', 'row');
+    if (!p.active) { const use = el('button', 'btn ghost sm', 'Use'); use.onclick = async () => { await api('PATCH', '/api/photos/' + p.id, {}); loadPhotos(); }; row.append(use); }
+    const del = el('button', 'btn danger sm', 'Delete'); del.onclick = async () => { if (!confirm('Delete this photo?')) return; await api('DELETE', '/api/photos/' + p.id); loadPhotos(); };
+    row.append(del); w.append(im, p.active ? el('div', '', 'showing') : el('div', ''), row); box.append(w);
+  }
+}
+function cropFile(file) {
+  return new Promise(resolve => {
+    const V = 300, modal = $('#crop'), img = $('#cimg'), zoom = $('#czoom'), view = $('#cview');
+    const url = URL.createObjectURL(file); let nw = 1, nh = 1, s0 = 1, z = 1, x = 0, y = 0, drag = null;
+    const clamp = () => { const w = nw * s0 * z, h = nh * s0 * z; x = Math.min(0, Math.max(V - w, x)); y = Math.min(0, Math.max(V - h, y)); };
+    const paint = () => { clamp(); img.style.transform = `translate(${x}px,${y}px) scale(${s0 * z})`; };
+    const done = blob => { modal.hidden = true; URL.revokeObjectURL(url); view.onpointerdown = view.onpointermove = view.onpointerup = null; $('#cok').onclick = $('#ccancel').onclick = zoom.oninput = null; resolve(blob); };
+    img.onload = () => {
+      nw = img.naturalWidth; nh = img.naturalHeight; s0 = Math.max(V / nw, V / nh); z = 1; zoom.value = 1;
+      x = (V - nw * s0) / 2; y = (V - nh * s0) / 2; paint(); modal.hidden = false;
+    };
+    img.onerror = () => done(null);
+    img.src = url;
+    zoom.oninput = () => { const cx = (V / 2 - x) / (nw * s0 * z), cy = (V / 2 - y) / (nh * s0 * z); z = Number(zoom.value); x = V / 2 - cx * nw * s0 * z; y = V / 2 - cy * nh * s0 * z; paint(); };
+    view.onpointerdown = e => { drag = { px: e.clientX, py: e.clientY, x, y }; view.setPointerCapture(e.pointerId); };
+    view.onpointermove = e => { if (!drag) return; x = drag.x + e.clientX - drag.px; y = drag.y + e.clientY - drag.py; paint(); };
+    view.onpointerup = () => { drag = null; };
+    $('#ccancel').onclick = () => done(null);
+    $('#cok').onclick = () => {
+      const k = s0 * z, c = document.createElement('canvas'); c.width = c.height = 512;
+      c.getContext('2d').drawImage(img, -x / k, -y / k, V / k, V / k, 0, 0, 512, 512);
+      c.toBlob(b => done(b), 'image/png');
+    };
   });
 }
-function openEdit(w) {
-  editingId = w.id;
-  const fe = $('#workForm').elements;
-  $('#workForm').reset();
-  $('#workErr').textContent = '';
-  fe.title.value = w.title; fe.description.value = w.description || ''; fe.link.value = w.link || '';
-  $('#workDlg').showModal();
-}
-$('#workForm').addEventListener('submit', async (e) => {
-  e.preventDefault();
-  const btn = $('#workSave');
-  btn.disabled = true; btn.textContent = 'Saving...';
-  try {
-    const body = new FormData(e.target);
-    if (!body.get('file') || !body.get('file').size) body.delete('file');
-    await api('/api/works/' + editingId, { method: 'PUT', body });
-    site = await api('/api/site');
-    $('#workDlg').close();
-    renderList();
-  } catch (err) { $('#workErr').textContent = err.message; }
-  btn.disabled = false; btn.textContent = 'Save work';
-});
-async function removeWork(w) {
-  if (!confirm('Delete "' + w.title + '"? This cannot be undone.')) return;
-  try { await api('/api/works/' + w.id, { method: 'DELETE' }); site = await api('/api/site'); renderList(); }
-  catch (err) { alert(err.message); }
-}
-
-/* ---------- settings ---------- */
-function fillSettings() {
-  const fe = $('#siteForm').elements, p = site.profile, t = site.theme;
-  fe.name.value = p.name; fe.tagline.value = p.tagline; fe.bio.value = p.bio;
-  fe.location.value = p.location; fe.email.value = p.email;
-  fe.links.value = p.links.map((l) => l.label + ' | ' + l.url).join('\n');
-  fe.accent.value = t.accent; fe.mode.value = t.mode; fe.font.value = t.font;
-  fe.overlay.value = t.overlay ?? 60;
-  fe.cardOpacity.value = t.cardOpacity ?? 55; fe.cardBlur.value = t.cardBlur ?? 16; fe.radius.value = t.radius ?? 24;
-  fe.glow.value = t.glow ?? 40; fe.nameFx.value = t.nameFx || 'glow'; fe.fx.value = t.fx || 'none';
-  showMedia();
-  $('#ovVal').textContent = fe.overlay.value;
-  showBg();
-}
-$('#siteForm').elements.overlay.addEventListener('input', (e) => { $('#ovVal').textContent = e.target.value; });
-function draft() {
-  const fe = $('#siteForm').elements;
-  const links = fe.links.value.split('\n').map((line) => {
-    const i = line.indexOf('|');
-    return i < 0 ? null : { label: line.slice(0, i).trim(), url: line.slice(i + 1).trim() };
-  }).filter(Boolean);
-  const v = (n) => fe[n].value;
-  return {
-    profile: { name: v('name'), tagline: v('tagline'), bio: v('bio'), location: v('location'), email: v('email'), links },
-    theme: { accent: v('accent'), mode: v('mode'), font: v('font'), overlay: v('overlay'), cardOpacity: v('cardOpacity'), cardBlur: v('cardBlur'), radius: v('radius'), glow: v('glow'), nameFx: v('nameFx'), fx: v('fx') }
-  };
-}
-function postDraft() {
-  const f = $('#preview');
-  if (!f || !f.contentWindow || !site) return;
-  const d = draft();
-  f.contentWindow.postMessage({ preview: true, site: { ...site, profile: d.profile, theme: { ...site.theme, ...d.theme } } }, location.origin);
-}
-$('#siteForm').addEventListener('input', postDraft);
-$('#preview').addEventListener('load', postDraft);
-$('#siteForm').addEventListener('submit', async (e) => {
-  e.preventDefault();
-  try {
-    site = await api('/api/site', json('PUT', draft()));
-    theme();
-    $('#siteErr').style.color = 'var(--muted)';
-    $('#siteErr').textContent = 'Saved.';
-  } catch (err) { $('#siteErr').style.color = ''; $('#siteErr').textContent = err.message; }
-});
-
-/* ---------- background image ---------- */
-function showBg() {
-  const prev = $('#bgPrev');
-  const b = site.theme.background;
-  prev.style.backgroundImage = b ? 'url("/uploads/' + encodeURIComponent(b) + '")' : '';
-  prev.textContent = b ? '' : 'No background image';
-  $('#bgRemove').hidden = !b;
-  postDraft();
-}
-$('#bgFile').addEventListener('change', async (e) => {
-  const file = e.target.files[0];
-  if (!file) return;
-  const s = $('#bgStatus');
-  s.className = 'status'; s.textContent = 'Uploading...';
-  try {
-    const fd = new FormData();
-    fd.append('image', file);
-    site = await api('/api/background', { method: 'POST', body: fd });
-    s.textContent = 'Background saved. Use the fade slider above if text is hard to read.';
-    showBg();
-  } catch (err) { s.className = 'status bad'; s.textContent = err.message; }
-  e.target.value = '';
-});
-$('#bgRemove').addEventListener('click', async () => {
-  try { site = await api('/api/background', { method: 'DELETE' }); $('#bgStatus').textContent = 'Background removed.'; showBg(); }
-  catch (err) { $('#bgStatus').textContent = err.message; }
-});
-
-/* ---------- profile picture and music ---------- */
-function showMedia() { $('#avRemove').hidden = !site.theme.avatar; $('#muRemove').hidden = !site.theme.music; postDraft(); }
-async function mediaUpload(field, input) {
-  const file = input.files[0];
-  if (!file) return;
-  const s = $('#mediaStatus');
-  s.className = 'status'; s.textContent = 'Uploading...';
-  try {
-    const fd = new FormData();
-    fd.append('file', file);
-    site = await api('/api/' + field, { method: 'POST', body: fd });
-    s.textContent = 'Saved.'; showMedia();
-  } catch (err) { s.className = 'status bad'; s.textContent = err.message; }
-  input.value = '';
-}
-$('#avFile').addEventListener('change', (e) => mediaUpload('avatar', e.target));
-$('#muFile').addEventListener('change', (e) => mediaUpload('music', e.target));
-['avatar:#avRemove', 'music:#muRemove'].forEach((x) => {
-  const [field, sel] = x.split(':');
-  $(sel).addEventListener('click', async () => { try { site = await api('/api/' + field, { method: 'DELETE' }); showMedia(); } catch (err) { alert(err.message); } });
-});
-
-document.querySelectorAll('[data-close]').forEach((b) => b.addEventListener('click', () => b.closest('dialog').close()));
-(async function init() {
-  site = await api('/api/site');
-  if (token) { try { await api('/api/me'); } catch { token = ''; } }
-  show();
-})();
+$('#p-file').onchange = async e => {
+  const files = [...e.target.files]; e.target.value = '';
+  let ok = 0;
+  for (const f of files) {
+    const blob = await cropFile(f); if (!blob) continue;
+    const fd = new FormData(); fd.append('files', blob, 'photo.png');
+    try {
+      const r = await fetch('/api/photos', { method: 'POST', body: fd, credentials: 'same-origin' });
+      const d = await r.json().catch(() => ({})); if (r.status === 401) return showLogin(); if (!r.ok) throw new Error(d.error || 'Upload failed'); ok++;
+    } catch (err) { say('#p-msg', err.message, 'err'); return; }
+  }
+  if (ok) say('#p-msg', ok + ' added. The newest one is now showing on the site.', 'ok');
+  loadPhotos();
+};

@@ -1,20 +1,22 @@
-# Render Blueprint: New + > Blueprint, point it at your GitHub repo.
 services:
   - type: web
-    name: my-portfolio
+    name: pixel-gallery
     runtime: node
-    plan: starter            # needed for a persistent disk and for staying awake
+    plan: starter            # always-on. See README for the free option.
     buildCommand: npm install
     startCommand: npm start
     healthCheckPath: /healthz
+    autoDeploy: true
     envVars:
-      - key: ADMIN_PASSCODE  # you type this in the Render dashboard
-        sync: false
+      - key: NODE_VERSION
+        value: 22
+      - key: ADMIN_PASSWORD
+        sync: false          # you type this in the Render dashboard
       - key: SESSION_SECRET
         generateValue: true
       - key: DATA_DIR
-        value: /var/data
+        value: /data
     disk:
-      name: portfolio-data
-      mountPath: /var/data
-      sizeGB: 2
+      name: gallery-data
+      mountPath: /data
+      sizeGB: 1
