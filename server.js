@@ -25,7 +25,7 @@ const DEFAULT_SITE = {
     email: '',
     links: []
   },
-  theme: { accent: '#2B4EFF', mode: 'light', font: 'bricolage' },
+  theme: { accent: '#2B4EFF', mode: 'light', font: 'bricolage', overlay: 60, background: '' },
   works: []
 };
 
@@ -93,11 +93,18 @@ function limited(ip) {
 }
 
 /* ---------- uploads ---------- */
+const storage = multer.diskStorage({
+  destination: UPLOAD_DIR,
+  filename: (req, file, cb) => cb(null, crypto.randomBytes(12).toString('hex') + MIME[file.mimetype][0])
+});
+const imageOnly = multer({
+  storage,
+  limits: { fileSize: 25 * 1024 * 1024, files: 1 },
+  fileFilter: (req, file, cb) =>
+    /^image\/(jpeg|png|webp)$/.test(file.mimetype) ? cb(null, true) : cb(new Error('The background must be a JPG, PNG or WebP image.'))
+});
 const upload = multer({
-  storage: multer.diskStorage({
-    destination: UPLOAD_DIR,
-    filename: (req, file, cb) => cb(null, crypto.randomBytes(12).toString('hex') + MIME[file.mimetype][0])
-  }),
+  storage,
   limits: { fileSize: 100 * 1024 * 1024, files: 1 },
   fileFilter: (req, file, cb) =>
     MIME[file.mimetype] ? cb(null, true) : cb(new Error('That file type is not supported. Use JPG, PNG, WebP, GIF, MP4, WebM, MP3, WAV or PDF.'))
@@ -146,8 +153,24 @@ app.put('/api/site', requireAuth, (req, res) => {
   site.theme = {
     accent: /^#[0-9a-f]{6}$/i.test(t.accent) ? t.accent : site.theme.accent,
     mode: t.mode === 'dark' ? 'dark' : 'light',
-    font: ['bricolage', 'fraunces', 'dmsans'].includes(t.font) ? t.font : 'bricolage'
+    font: ['bricolage', 'fraunces', 'dmsans'].includes(t.font) ? t.font : 'bricolage',
+    overlay: Number.isFinite(Number(t.overlay)) ? Math.min(95, Math.max(0, Math.round(Number(t.overlay)))) : site.theme.overlay,
+    background: site.theme.background || ''
   };
+  save(site);
+  res.json(site);
+});
+
+app.post('/api/background', requireAuth, imageOnly.single('image'), (req, res) => {
+  if (!req.file) return res.status(400).json({ error: 'Choose an image first.' });
+  removeFile(site.theme.background);
+  site.theme.background = req.file.filename;
+  save(site);
+  res.json(site);
+});
+app.delete('/api/background', requireAuth, (req, res) => {
+  removeFile(site.theme.background);
+  site.theme.background = '';
   save(site);
   res.json(site);
 });
@@ -190,6 +213,10 @@ app.delete('/api/works/:id', requireAuth, (req, res) => {
   res.json({ ok: true });
 });
 
+app.get('/admin', (req, res) => {
+  res.setHeader('X-Robots-Tag', 'noindex');
+  res.sendFile(path.join(__dirname, 'public', 'admin.html'));
+});
 app.use('/uploads', express.static(UPLOAD_DIR, { maxAge: '30d', immutable: true, index: false, dotfiles: 'deny' }));
 app.use(express.static(path.join(__dirname, 'public')));
 
