@@ -1,0 +1,20 @@
+# Render Blueprint: New + > Blueprint, point it at your GitHub repo.
+services:
+  - type: web
+    name: my-portfolio
+    runtime: node
+    plan: starter            # needed for a persistent disk and for staying awake
+    buildCommand: npm install
+    startCommand: npm start
+    healthCheckPath: /healthz
+    envVars:
+      - key: ADMIN_PASSCODE  # you type this in the Render dashboard
+        sync: false
+      - key: SESSION_SECRET
+        generateValue: true
+      - key: DATA_DIR
+        value: /var/data
+    disk:
+      name: portfolio-data
+      mountPath: /var/data
+      sizeGB: 2
