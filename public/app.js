@@ -4,146 +4,99 @@ const el = (tag, props = {}, ...kids) => {
   kids.flat().forEach((k) => n.append(k));
   return n;
 };
-const store = {
-  get: () => { try { return localStorage.getItem('visitor-mode'); } catch { return null; } },
-  set: (v) => { try { localStorage.setItem('visitor-mode', v); } catch {} }
-};
-const KINDS = { image: 'Images', video: 'Video', audio: 'Audio', pdf: 'Documents', text: 'Notes' };
-let gallery = [], gi = 0;
-
-function setMode(m) {
-  document.documentElement.dataset.mode = m;
-  const b = $('#modeBtn');
-  b.setAttribute('aria-pressed', String(m === 'dark'));
-  b.textContent = m === 'dark' ? 'Light mode' : 'Dark mode';
-  $('meta[name="theme-color"]').content = m === 'dark' ? '#15171B' : '#EEF0F3';
-}
+const preview = new URLSearchParams(location.search).has('preview');
+const url = (f) => '/uploads/' + encodeURIComponent(f);
+let gallery = [], gi = 0, fxType = 'none', accent = '#8B5CF6', lastWorks = '', audio = null;
 
 function applyTheme(site) {
   const r = document.documentElement, t = site.theme;
   r.style.setProperty('--accent', t.accent);
-  r.dataset.font = t.font;
+  r.dataset.mode = t.mode; r.dataset.font = t.font; r.dataset.namefx = t.nameFx;
   const n = parseInt(t.accent.slice(1), 16);
   const lum = (0.299 * (n >> 16) + 0.587 * ((n >> 8) & 255) + 0.114 * (n & 255)) / 255;
   r.style.setProperty('--on-accent', lum > 0.62 ? '#111' : '#fff');
   r.style.setProperty('--overlay', (t.overlay ?? 60) / 100);
-  $('#bg').style.backgroundImage = t.background ? 'url("/uploads/' + encodeURIComponent(t.background) + '")' : '';
-  setMode(store.get() || t.mode);
+  r.style.setProperty('--card-a', t.cardOpacity);
+  r.style.setProperty('--blur', t.cardBlur + 'px');
+  r.style.setProperty('--radius', t.radius + 'px');
+  r.style.setProperty('--glow', t.glow);
+  $('#bg').style.backgroundImage = t.background ? 'url("' + url(t.background) + '")' : '';
+  fxType = t.fx; accent = t.accent;
 }
 
 function seo(site) {
   const p = site.profile, title = p.name + (p.tagline ? ' | ' + p.tagline : '');
   const desc = (p.tagline ? p.tagline + '. ' : '') + p.bio.replace(/\s+/g, ' ').slice(0, 150);
-  const firstImg = site.works.find((w) => w.kind === 'image');
-  const img = firstImg ? firstImg.file : site.theme.background;
   const set = (sel, v) => { const m = $(sel); if (m) m.setAttribute('content', v); };
   document.title = title;
-  set('meta[name="description"]', desc);
-  set('meta[property="og:title"]', title);
-  set('meta[property="og:description"]', desc);
-  if (img) {
-    let m = $('meta[property="og:image"]');
-    if (!m) { m = el('meta'); m.setAttribute('property', 'og:image'); document.head.append(m); }
-    m.setAttribute('content', location.origin + '/uploads/' + encodeURIComponent(img));
-  }
+  set('meta[name="description"]', desc); set('meta[property="og:title"]', title); set('meta[property="og:description"]', desc);
+  const img = site.theme.avatar || site.theme.background;
+  if (img) { const m = el('meta'); m.setAttribute('property', 'og:image'); m.setAttribute('content', location.origin + url(img)); document.head.append(m); }
   const ld = el('script', { type: 'application/ld+json' });
-  ld.textContent = JSON.stringify({
-    '@context': 'https://schema.org', '@type': 'Person', name: p.name, description: p.tagline || undefined,
-    email: p.email || undefined, url: location.origin, sameAs: p.links.map((l) => l.url).filter((u) => /^https?:/.test(u))
-  });
+  ld.textContent = JSON.stringify({ '@context': 'https://schema.org', '@type': 'Person', name: p.name, description: p.tagline || undefined, email: p.email || undefined, url: location.origin, sameAs: p.links.map((l) => l.url).filter((u) => /^https?:/.test(u)) });
   document.head.append(ld);
 }
 
+function setMusic(file) {
+  const b = $('#music');
+  if (audio && audio.dataset.f !== file) { audio.pause(); audio = null; b.textContent = 'Play music'; }
+  if (file && !audio) { audio = new Audio(url(file)); audio.loop = true; audio.dataset.f = file; }
+  b.hidden = !file;
+}
+
 function render(site) {
-  const p = site.profile;
+  const p = site.profile, t = site.theme;
   applyTheme(site);
-  seo(site);
+  const av = $('#avatar');
+  av.hidden = !t.avatar;
+  if (t.avatar) av.src = url(t.avatar);
   $('#name').textContent = p.name;
-  $('#navName').textContent = p.name;
   $('#tagline').textContent = p.tagline; $('#tagline').hidden = !p.tagline;
   $('#bio').textContent = p.bio; $('#bio').hidden = !p.bio;
-  const meta = $('#meta');
-  meta.replaceChildren();
-  if (p.location) meta.append(el('li', { textContent: p.location }));
-  p.links.forEach((l) => meta.append(el('li', {}, el('a', { href: l.url, textContent: l.label, target: '_blank', rel: 'noopener noreferrer' }))));
+  const links = (p.email ? [{ label: 'Email me', url: 'mailto:' + p.email }] : []).concat(p.links);
+  $('#links').replaceChildren(...links.map((l) => el('li', {}, el('a', { href: l.url, textContent: l.label, target: l.url.startsWith('mailto:') ? '_self' : '_blank', rel: 'noopener noreferrer' }))));
+  $('#loc').textContent = p.location;
+  $('#views').textContent = site.views ? site.views.toLocaleString() + ' views' : '';
   $('#year').textContent = '© ' + new Date().getFullYear() + ' ' + p.name;
-  if (p.email) {
-    $('#cta').hidden = false;
-    $('#cta').href = 'mailto:' + p.email;
-    $('#contact').hidden = false;
-    $('#contactMail').href = 'mailto:' + p.email;
-    $('#contactMail').textContent = p.email;
-  }
-  renderWork(site.works);
+  setMusic(t.music);
+  const sig = JSON.stringify(site.works);
+  if (sig !== lastWorks) { lastWorks = sig; renderWork(site.works); }
 }
 
 function renderWork(works) {
   const box = $('#work');
   box.replaceChildren();
+  $('#workWrap').hidden = !works.length;
   gallery = works.filter((w) => w.kind === 'image');
-  box.classList.toggle('empty', !works.length);
-  if (!works.length) { box.append(el('p', { textContent: 'New work is on the way.' })); return; }
   works.forEach((w) => {
     const kind = w.kind || 'text';
     const item = el('article', { className: 'item' });
-    item.dataset.kind = kind;
-    const src = w.file ? '/uploads/' + encodeURIComponent(w.file) : '';
+    const src = w.file ? url(w.file) : '';
     if (kind === 'image') {
       const img = el('img', { src, alt: w.title, loading: 'lazy', decoding: 'async' });
       const done = () => img.classList.add('loaded');
       img.addEventListener('load', done); img.addEventListener('error', done);
       if (img.complete) done();
       const b = el('button', { className: 'media', type: 'button', ariaLabel: 'View ' + w.title + ' larger' }, img);
-      b.addEventListener('click', () => openViewer(gallery.indexOf(w)));
+      b.addEventListener('click', () => { gi = gallery.indexOf(w); showImage(); $('#viewDlg').showModal(); });
       item.append(b);
-    } else if (kind === 'video') {
-      item.append(el('div', { className: 'media' }, el('video', { src, controls: true, preload: 'metadata', playsInline: true })));
-    } else if (kind === 'audio') {
-      item.append(el('div', { className: 'media' }, el('audio', { src, controls: true, preload: 'none' })));
-    } else if (kind === 'pdf') {
-      item.append(el('a', { className: 'tile', href: src, target: '_blank', rel: 'noopener', textContent: 'Open PDF' }));
-    }
+    } else if (kind === 'video') item.append(el('div', { className: 'media' }, el('video', { src, controls: true, preload: 'metadata', playsInline: true })));
+    else if (kind === 'audio') item.append(el('div', { className: 'media' }, el('audio', { src, controls: true, preload: 'none' })));
+    else if (kind === 'pdf') item.append(el('a', { className: 'tile', href: src, target: '_blank', rel: 'noopener', textContent: 'Open PDF' }));
     item.append(el('h2', { textContent: w.title }));
     if (w.description) item.append(el('p', { textContent: w.description }));
     if (w.link) item.append(el('a', { className: 'go', href: w.link, target: '_blank', rel: 'noopener noreferrer', textContent: 'Visit link' }));
     box.append(item);
   });
-  buildFilters(works);
-}
-
-function buildFilters(works) {
-  const bar = $('#filters');
-  bar.replaceChildren();
-  const kinds = [...new Set(works.map((w) => w.kind || 'text'))];
-  bar.hidden = kinds.length < 2;
-  if (bar.hidden) return;
-  const make = (label, kind) => {
-    const b = el('button', { type: 'button', className: 'ghost', textContent: label });
-    b.setAttribute('aria-pressed', String(kind === 'all'));
-    b.addEventListener('click', () => {
-      bar.querySelectorAll('button').forEach((x) => x.setAttribute('aria-pressed', String(x === b)));
-      document.querySelectorAll('.item').forEach((it) => { it.hidden = kind !== 'all' && it.dataset.kind !== kind; });
-    });
-    bar.append(b);
-  };
-  make('All', 'all');
-  kinds.forEach((k) => make(KINDS[k] || k, k));
 }
 
 /* ---------- image viewer ---------- */
-function openViewer(i) {
-  gi = i;
-  showImage();
-  if (!$('#viewDlg').open) $('#viewDlg').showModal();
-}
 function showImage() {
   const w = gallery[gi];
   const cap = el('figcaption', {}, el('strong', { textContent: w.title }));
   if (w.description) cap.append(el('span', { textContent: w.description }));
-  $('#viewBody').replaceChildren(el('img', { src: '/uploads/' + encodeURIComponent(w.file), alt: w.title }), cap);
-  const multi = gallery.length > 1;
-  $('#prev').hidden = $('#next').hidden = !multi;
-  if (multi) [1, -1].forEach((d) => { new Image().src = '/uploads/' + encodeURIComponent(gallery[(gi + d + gallery.length) % gallery.length].file); });
+  $('#viewBody').replaceChildren(el('img', { src: url(w.file), alt: w.title }), cap);
+  $('#prev').hidden = $('#next').hidden = gallery.length < 2;
 }
 const step = (d) => { gi = (gi + d + gallery.length) % gallery.length; showImage(); };
 $('#prev').addEventListener('click', () => step(-1));
@@ -156,12 +109,39 @@ document.addEventListener('keydown', (e) => {
 $('#viewDlg').addEventListener('click', (e) => { if (e.target === e.currentTarget) e.currentTarget.close(); });
 document.querySelectorAll('[data-close]').forEach((b) => b.addEventListener('click', () => b.closest('dialog').close()));
 
-$('#modeBtn').addEventListener('click', () => {
-  const next = document.documentElement.dataset.mode === 'dark' ? 'light' : 'dark';
-  store.set(next);
-  setMode(next);
+$('#music').addEventListener('click', () => {
+  if (!audio) return;
+  if (audio.paused) { audio.play().catch(() => {}); $('#music').textContent = 'Pause music'; }
+  else { audio.pause(); $('#music').textContent = 'Play music'; }
 });
 
-fetch('/api/site').then((r) => r.json()).then(render).catch(() => {
-  $('#work').replaceChildren(el('p', { textContent: 'Could not load the portfolio. Refresh the page to try again.' }));
-});
+/* ---------- background effects ---------- */
+const cv = $('#fx'), cx = cv.getContext('2d');
+const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
+let parts = [];
+function sizeFx() {
+  cv.width = innerWidth; cv.height = innerHeight;
+  parts = Array.from({ length: 70 }, () => ({ x: Math.random() * cv.width, y: Math.random() * cv.height, r: Math.random() * 2 + 0.6, v: Math.random() * 0.6 + 0.25, p: Math.random() * 6.28 }));
+}
+addEventListener('resize', sizeFx); sizeFx();
+function tick(t) {
+  cx.clearRect(0, 0, cv.width, cv.height);
+  if (fxType !== 'none' && !reduce) {
+    parts.forEach((q) => {
+      if (fxType === 'snow') { q.y += q.v; q.x += Math.sin(t / 1500 + q.p) * 0.4; cx.fillStyle = 'rgba(255,255,255,.75)'; }
+      else if (fxType === 'embers') { q.y -= q.v * 1.2; q.x += Math.sin(t / 900 + q.p) * 0.5; cx.fillStyle = accent; cx.globalAlpha = 0.5 + 0.4 * Math.sin(t / 400 + q.p); }
+      else { cx.fillStyle = '#fff'; cx.globalAlpha = 0.45 + 0.55 * Math.sin(t / 700 + q.p); }
+      if (q.y > cv.height) q.y = -4; if (q.y < -4) q.y = cv.height;
+      cx.beginPath(); cx.arc(q.x, q.y, q.r, 0, 6.28); cx.fill(); cx.globalAlpha = 1;
+    });
+  }
+  requestAnimationFrame(tick);
+}
+requestAnimationFrame(tick);
+
+/* ---------- start ---------- */
+addEventListener('message', (e) => { if (e.origin === location.origin && e.data && e.data.preview) render(e.data.site); });
+fetch('/api/site').then((r) => r.json()).then((site) => {
+  render(site);
+  if (!preview) { seo(site); fetch('/api/view', { method: 'POST' }).then((r) => r.json()).then((d) => { $('#views').textContent = d.views.toLocaleString() + ' views'; }).catch(() => {}); }
+}).catch(() => { $('#bio').textContent = 'Could not load this page. Refresh to try again.'; });

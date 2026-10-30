@@ -5,7 +5,6 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Portfolio</title>
 <meta name="description" content="Portfolio">
-<meta name="theme-color" content="#EEF0F3">
 <meta property="og:type" content="website">
 <meta property="og:title" content="Portfolio">
 <meta property="og:description" content="Portfolio">
@@ -18,36 +17,25 @@
 </head>
 <body>
 <div id="bg" class="bg" aria-hidden="true"></div>
-<a class="skip" href="#work">Skip to work</a>
+<canvas id="fx" aria-hidden="true"></canvas>
 
-<nav class="nav" aria-label="Main">
-  <a id="navName" class="nav-name" href="#top"></a>
-  <div class="nav-r">
-    <a href="#work">Work</a>
-    <a href="#contact">Contact</a>
-    <button id="modeBtn" class="ghost small" type="button" aria-pressed="false">Dark mode</button>
-  </div>
-</nav>
+<main class="stage">
+  <section class="card" aria-label="Profile">
+    <img id="avatar" class="avatar" alt="" hidden>
+    <h1 id="name" class="pname"></h1>
+    <p id="tagline" class="ptag"></p>
+    <p id="bio" class="pbio"></p>
+    <ul id="links" class="plinks"></ul>
+    <div class="prow"><span id="loc"></span><span id="views"></span><button id="music" class="ghost small" type="button" hidden>Play music</button></div>
+  </section>
+</main>
 
-<header class="top" id="top">
-  <h1 id="name" class="name"></h1>
-  <div class="intro">
-    <p id="tagline" class="tagline"></p>
-    <p id="bio" class="bio"></p>
-    <ul id="meta" class="meta"></ul>
-    <p><a id="cta" class="cta" href="#contact" hidden>Get in touch</a></p>
-  </div>
-</header>
-
-<div class="filters" id="filters" role="group" aria-label="Filter work" hidden></div>
-<main id="work" class="work" aria-label="Work"></main>
-
-<section id="contact" class="contact" hidden>
-  <p class="contact-lead">Have a project in mind?</p>
-  <a id="contactMail" class="contact-mail" href="#"></a>
+<section id="workWrap" class="work-wrap" hidden>
+  <h2 class="work-h">Work</h2>
+  <div id="work" class="work" aria-label="Work"></div>
 </section>
 
-<footer class="foot"><span id="year"></span><a href="#top">Back to top</a></footer>
+<footer class="foot"><span id="year"></span></footer>
 
 <dialog id="viewDlg" class="view" aria-label="Image viewer">
   <button class="close" type="button" data-close aria-label="Close">Close</button>
@@ -55,8 +43,7 @@
   <button id="next" class="navbtn r" type="button" aria-label="Next image">&rsaquo;</button>
   <figure id="viewBody"></figure>
 </dialog>
-
-<noscript><p style="padding:24px">This portfolio needs JavaScript to load its work.</p></noscript>
+<noscript><p style="padding:24px">This page needs JavaScript to load.</p></noscript>
 <script src="/app.js"></script>
 </body>
 </html>
