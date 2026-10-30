@@ -5,29 +5,58 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Portfolio</title>
 <meta name="description" content="Portfolio">
+<meta name="theme-color" content="#EEF0F3">
+<meta property="og:type" content="website">
+<meta property="og:title" content="Portfolio">
+<meta property="og:description" content="Portfolio">
+<meta name="twitter:card" content="summary_large_image">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400;12..96,700;12..96,800&family=DM+Sans:wght@400;500;700&family=Fraunces:opsz,wght@9..144,400;9..144,700&family=Instrument+Sans:wght@400;500;600&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="/style.css">
+<link rel="stylesheet" href="/site.css">
 </head>
 <body>
 <div id="bg" class="bg" aria-hidden="true"></div>
 <a class="skip" href="#work">Skip to work</a>
 
-<header class="top">
+<nav class="nav" aria-label="Main">
+  <a id="navName" class="nav-name" href="#top"></a>
+  <div class="nav-r">
+    <a href="#work">Work</a>
+    <a href="#contact">Contact</a>
+    <button id="modeBtn" class="ghost small" type="button" aria-pressed="false">Dark mode</button>
+  </div>
+</nav>
+
+<header class="top" id="top">
   <h1 id="name" class="name"></h1>
   <div class="intro">
     <p id="tagline" class="tagline"></p>
     <p id="bio" class="bio"></p>
     <ul id="meta" class="meta"></ul>
+    <p><a id="cta" class="cta" href="#contact" hidden>Get in touch</a></p>
   </div>
 </header>
 
+<div class="filters" id="filters" role="group" aria-label="Filter work" hidden></div>
 <main id="work" class="work" aria-label="Work"></main>
 
-<footer class="foot"><span id="year"></span></footer>
+<section id="contact" class="contact" hidden>
+  <p class="contact-lead">Have a project in mind?</p>
+  <a id="contactMail" class="contact-mail" href="#"></a>
+</section>
 
-<dialog id="viewDlg" class="view"><button class="close" type="button" data-close aria-label="Close">Close</button><div id="viewBody"></div></dialog>
+<footer class="foot"><span id="year"></span><a href="#top">Back to top</a></footer>
+
+<dialog id="viewDlg" class="view" aria-label="Image viewer">
+  <button class="close" type="button" data-close aria-label="Close">Close</button>
+  <button id="prev" class="navbtn l" type="button" aria-label="Previous image">&lsaquo;</button>
+  <button id="next" class="navbtn r" type="button" aria-label="Next image">&rsaquo;</button>
+  <figure id="viewBody"></figure>
+</dialog>
+
+<noscript><p style="padding:24px">This portfolio needs JavaScript to load its work.</p></noscript>
 <script src="/app.js"></script>
 </body>
 </html>
