@@ -145,22 +145,37 @@ function fillSettings() {
   fe.links.value = p.links.map((l) => l.label + ' | ' + l.url).join('\n');
   fe.accent.value = t.accent; fe.mode.value = t.mode; fe.font.value = t.font;
   fe.overlay.value = t.overlay ?? 60;
+  fe.cardOpacity.value = t.cardOpacity ?? 55; fe.cardBlur.value = t.cardBlur ?? 16; fe.radius.value = t.radius ?? 24;
+  fe.glow.value = t.glow ?? 40; fe.nameFx.value = t.nameFx || 'glow'; fe.fx.value = t.fx || 'none';
+  showMedia();
   $('#ovVal').textContent = fe.overlay.value;
   showBg();
 }
 $('#siteForm').elements.overlay.addEventListener('input', (e) => { $('#ovVal').textContent = e.target.value; });
-$('#siteForm').addEventListener('submit', async (e) => {
-  e.preventDefault();
-  const fe = e.target.elements;
+function draft() {
+  const fe = $('#siteForm').elements;
   const links = fe.links.value.split('\n').map((line) => {
     const i = line.indexOf('|');
     return i < 0 ? null : { label: line.slice(0, i).trim(), url: line.slice(i + 1).trim() };
   }).filter(Boolean);
+  const v = (n) => fe[n].value;
+  return {
+    profile: { name: v('name'), tagline: v('tagline'), bio: v('bio'), location: v('location'), email: v('email'), links },
+    theme: { accent: v('accent'), mode: v('mode'), font: v('font'), overlay: v('overlay'), cardOpacity: v('cardOpacity'), cardBlur: v('cardBlur'), radius: v('radius'), glow: v('glow'), nameFx: v('nameFx'), fx: v('fx') }
+  };
+}
+function postDraft() {
+  const f = $('#preview');
+  if (!f || !f.contentWindow || !site) return;
+  const d = draft();
+  f.contentWindow.postMessage({ preview: true, site: { ...site, profile: d.profile, theme: { ...site.theme, ...d.theme } } }, location.origin);
+}
+$('#siteForm').addEventListener('input', postDraft);
+$('#preview').addEventListener('load', postDraft);
+$('#siteForm').addEventListener('submit', async (e) => {
+  e.preventDefault();
   try {
-    site = await api('/api/site', json('PUT', {
-      profile: { name: fe.name.value, tagline: fe.tagline.value, bio: fe.bio.value, location: fe.location.value, email: fe.email.value, links },
-      theme: { accent: fe.accent.value, mode: fe.mode.value, font: fe.font.value, overlay: fe.overlay.value }
-    }));
+    site = await api('/api/site', json('PUT', draft()));
     theme();
     $('#siteErr').style.color = 'var(--muted)';
     $('#siteErr').textContent = 'Saved.';
@@ -174,6 +189,7 @@ function showBg() {
   prev.style.backgroundImage = b ? 'url("/uploads/' + encodeURIComponent(b) + '")' : '';
   prev.textContent = b ? '' : 'No background image';
   $('#bgRemove').hidden = !b;
+  postDraft();
 }
 $('#bgFile').addEventListener('change', async (e) => {
   const file = e.target.files[0];
@@ -192,6 +208,28 @@ $('#bgFile').addEventListener('change', async (e) => {
 $('#bgRemove').addEventListener('click', async () => {
   try { site = await api('/api/background', { method: 'DELETE' }); $('#bgStatus').textContent = 'Background removed.'; showBg(); }
   catch (err) { $('#bgStatus').textContent = err.message; }
+});
+
+/* ---------- profile picture and music ---------- */
+function showMedia() { $('#avRemove').hidden = !site.theme.avatar; $('#muRemove').hidden = !site.theme.music; postDraft(); }
+async function mediaUpload(field, input) {
+  const file = input.files[0];
+  if (!file) return;
+  const s = $('#mediaStatus');
+  s.className = 'status'; s.textContent = 'Uploading...';
+  try {
+    const fd = new FormData();
+    fd.append('file', file);
+    site = await api('/api/' + field, { method: 'POST', body: fd });
+    s.textContent = 'Saved.'; showMedia();
+  } catch (err) { s.className = 'status bad'; s.textContent = err.message; }
+  input.value = '';
+}
+$('#avFile').addEventListener('change', (e) => mediaUpload('avatar', e.target));
+$('#muFile').addEventListener('change', (e) => mediaUpload('music', e.target));
+['avatar:#avRemove', 'music:#muRemove'].forEach((x) => {
+  const [field, sel] = x.split(':');
+  $(sel).addEventListener('click', async () => { try { site = await api('/api/' + field, { method: 'DELETE' }); showMedia(); } catch (err) { alert(err.message); } });
 });
 
 document.querySelectorAll('[data-close]').forEach((b) => b.addEventListener('click', () => b.closest('dialog').close()));

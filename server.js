@@ -25,8 +25,9 @@ const DEFAULT_SITE = {
     email: '',
     links: []
   },
-  theme: { accent: '#2B4EFF', mode: 'light', font: 'bricolage', overlay: 60, background: '' },
-  works: []
+  theme: { accent: '#8B5CF6', mode: 'dark', font: 'bricolage', overlay: 60, background: '', avatar: '', music: '', cardOpacity: 55, cardBlur: 16, radius: 24, glow: 40, nameFx: 'glow', fx: 'none' },
+  works: [],
+  views: 0
 };
 
 function load() {
@@ -35,7 +36,8 @@ function load() {
     return {
       profile: { ...DEFAULT_SITE.profile, ...d.profile },
       theme: { ...DEFAULT_SITE.theme, ...d.theme },
-      works: Array.isArray(d.works) ? d.works : []
+      works: Array.isArray(d.works) ? d.works : [],
+      views: Number(d.views) || 0
     };
   } catch {
     return structuredClone(DEFAULT_SITE);
@@ -154,8 +156,16 @@ app.put('/api/site', requireAuth, (req, res) => {
     accent: /^#[0-9a-f]{6}$/i.test(t.accent) ? t.accent : site.theme.accent,
     mode: t.mode === 'dark' ? 'dark' : 'light',
     font: ['bricolage', 'fraunces', 'dmsans'].includes(t.font) ? t.font : 'bricolage',
-    overlay: Number.isFinite(Number(t.overlay)) ? Math.min(95, Math.max(0, Math.round(Number(t.overlay)))) : site.theme.overlay,
-    background: site.theme.background || ''
+    overlay: clamp(t.overlay, 0, 95, site.theme.overlay),
+    background: site.theme.background || '',
+    avatar: site.theme.avatar || '',
+    music: site.theme.music || '',
+    cardOpacity: clamp(t.cardOpacity, 0, 100, 55),
+    cardBlur: clamp(t.cardBlur, 0, 40, 16),
+    radius: clamp(t.radius, 0, 48, 24),
+    glow: clamp(t.glow, 0, 100, 40),
+    nameFx: ['none', 'glow', 'gradient', 'shimmer'].includes(t.nameFx) ? t.nameFx : 'glow',
+    fx: ['none', 'stars', 'snow', 'embers'].includes(t.fx) ? t.fx : 'none'
   };
   save(site);
   res.json(site);
@@ -173,6 +183,38 @@ app.delete('/api/background', requireAuth, (req, res) => {
   site.theme.background = '';
   save(site);
   res.json(site);
+});
+
+const clamp = (v, lo, hi, d) => (Number.isFinite(Number(v)) ? Math.min(hi, Math.max(lo, Math.round(Number(v)))) : d);
+const audioOnly = multer({
+  storage,
+  limits: { fileSize: 25 * 1024 * 1024, files: 1 },
+  fileFilter: (req, file, cb) => (/^audio\/(mpeg|wav)$/.test(file.mimetype) ? cb(null, true) : cb(new Error('Music must be an MP3 or WAV file.')))
+});
+function assetRoutes(field, uploader) {
+  app.post('/api/' + field, requireAuth, uploader.single('file'), (req, res) => {
+    if (!req.file) return res.status(400).json({ error: 'Choose a file first.' });
+    removeFile(site.theme[field]);
+    site.theme[field] = req.file.filename;
+    save(site);
+    res.json(site);
+  });
+  app.delete('/api/' + field, requireAuth, (req, res) => {
+    removeFile(site.theme[field]);
+    site.theme[field] = '';
+    save(site);
+    res.json(site);
+  });
+}
+assetRoutes('avatar', imageOnly);
+assetRoutes('music', audioOnly);
+
+const seen = new Map(); // ip -> day, counts one view per visitor per day
+app.post('/api/view', (req, res) => {
+  const day = new Date().toISOString().slice(0, 10);
+  if (seen.size > 5000) seen.clear();
+  if (seen.get(req.ip) !== day) { seen.set(req.ip, day); site.views++; save(site); }
+  res.json({ views: site.views });
 });
 
 function workFields(body) {
