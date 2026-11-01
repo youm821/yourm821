@@ -94,7 +94,7 @@ async function restoreFromCloud(force = false) {
     if (!r.ok) throw new Error('GitHub answered ' + r.status);
     const remote = JSON.parse(await r.text());
     db = { ...db, ...remote };
-    for (const i of [...db.items, ...db.photos, ...db.showcase].filter(x => !x.seed)) {
+    for (const i of [...db.items, ...db.photos, ...db.showcase, ...(db.background ? [db.background] : [])].filter(x => !x.seed)) {
       const fp = path.join(UPLOAD_DIR, path.basename(i.file));
       if (fs.existsSync(fp)) continue;
       const f = await gh('GET', `/contents/${enc('uploads/' + path.basename(i.file))}?ref=${encodeURIComponent(GH_BRANCH)}`, null, true);
@@ -109,13 +109,13 @@ async function restoreFromCloud(force = false) {
 }
 function syncEverything() {
   pushDb();
-  for (const i of [...db.items, ...db.photos, ...db.showcase].filter(x => !x.seed)) {
+  for (const i of [...db.items, ...db.photos, ...db.showcase, ...(db.background ? [db.background] : [])].filter(x => !x.seed)) {
     ghTask(async () => { try { await ghPut('uploads/' + i.file, await fsp.readFile(path.join(UPLOAD_DIR, i.file))); } catch (e) { if (e.code !== 'ENOENT') throw e; } });
   }
 }
 
 // ---------- data ----------
-let db = { settings: { title: 'Pixel Decorations', subtitle: 'Avatar decorations, made in pixels.' }, items: [], removedSeed: [], photos: [], removedSeedPhotos: [], activePhoto: null, users: [], showcase: [] };
+let db = { settings: { title: 'Pixel Decorations', subtitle: 'Avatar decorations, made in pixels.' }, items: [], removedSeed: [], photos: [], removedSeedPhotos: [], activePhoto: null, users: [], showcase: [], background: null };
 try { db = { ...db, ...JSON.parse(fs.readFileSync(DB_FILE, 'utf8')) }; } catch { /* first run */ }
 await restoreFromCloud();
 db.settings = { title: 'Pixel Decorations', subtitle: '', ...db.settings };
@@ -161,6 +161,7 @@ await saveDb();
 
 const pub = i => ({ id: i.id, src: i.src, title: i.title, set: i.set });
 const photoView = p => ({ id: p.id, src: p.src, seed: !!p.seed, active: p.id === db.activePhoto });
+const bgView = () => db.background ? { src: db.background.src, dim: db.background.dim ?? 55 } : null;
 const activePhotoSrc = () => db.photos.find(p => p.id === db.activePhoto)?.src || null;
 const adminView = i => ({ ...pub(i), hidden: !!i.hidden, seed: !!i.seed });
 
@@ -340,7 +341,7 @@ async function removeShowcase(id) {
 }
 
 async function api(req, res, p, m) {
-  if (p === '/api/items' && m === 'GET') return json(res, 200, { settings: db.settings, photo: activePhotoSrc(), items: db.items.filter(i => !i.hidden).map(pub) });
+  if (p === '/api/items' && m === 'GET') return json(res, 200, { settings: db.settings, photo: activePhotoSrc(), background: bgView(), items: db.items.filter(i => !i.hidden).map(pub) });
   if (p === '/api/me' && m === 'GET') return json(res, 200, { admin: isAdmin(req), owner: isOwner(req), configured: !!PASSWORD, login: loginOn, user: pubUser(userFromReq(req)) });
   if (p === '/api/user/logout' && m === 'POST') {
     if (!sameOrigin(req)) return json(res, 403, { error: 'Bad origin' });
@@ -400,7 +401,7 @@ async function api(req, res, p, m) {
   if (!isAdmin(req)) return json(res, 401, { error: 'Login required' });
   if (m !== 'GET' && !sameOrigin(req)) return json(res, 403, { error: 'Bad origin' });
 
-  if (p === '/api/admin/items' && m === 'GET') return json(res, 200, { settings: db.settings, items: db.items.map(adminView) });
+  if (p === '/api/admin/items' && m === 'GET') return json(res, 200, { settings: db.settings, background: bgView(), items: db.items.map(adminView) });
 
   if (p === '/api/settings' && m === 'PUT') {
     const b = await readJson(req);
@@ -435,6 +436,33 @@ async function api(req, res, p, m) {
     return json(res, 200, { added: added.map(adminView), rejected });
   }
 
+  if (p === '/api/background' && m === 'POST') {
+    const bm = /boundary=(?:"([^"]+)"|([^;]+))/i.exec(req.headers['content-type'] || '');
+    if (!bm) return json(res, 400, { error: 'Expected multipart upload' });
+    const f = parseMultipart(await readBody(req, MAX_BODY), bm[1] || bm[2]).find(x => x.name === 'file' && x.filename);
+    if (!f) return json(res, 400, { error: 'No file received' });
+    const ext = imageExt(f.body);
+    if (!ext) return json(res, 400, { error: 'That is not a JPG, PNG, WebP or GIF image.' });
+    if (f.body.length > MAX_FILE) return json(res, 400, { error: 'That file is over 10 MB.' });
+    const id = crypto.randomBytes(6).toString('hex'), file = `bg_${id}.${ext}`, old = db.background;
+    await fsp.writeFile(path.join(UPLOAD_DIR, file), f.body);
+    ghTask(() => ghPut('uploads/' + file, f.body));
+    if (old) { try { await fsp.unlink(path.join(UPLOAD_DIR, path.basename(old.file))); } catch { /* gone */ } ghTask(() => ghDel('uploads/' + path.basename(old.file))); }
+    db.background = { file, src: '/uploads/' + file, dim: old?.dim ?? 55 };
+    await saveDb(); return json(res, 200, bgView());
+  }
+  if (p === '/api/background' && m === 'PATCH') {
+    if (!db.background) return json(res, 404, { error: 'No background set.' });
+    const b = await readJson(req), dim = Math.round(Number(b.dim));
+    if (!Number.isFinite(dim)) return json(res, 400, { error: 'Dim must be a number.' });
+    db.background.dim = Math.min(90, Math.max(0, dim));
+    await saveDb(); return json(res, 200, bgView());
+  }
+  if (p === '/api/background' && m === 'DELETE') {
+    const old = db.background;
+    if (old) { try { await fsp.unlink(path.join(UPLOAD_DIR, path.basename(old.file))); } catch { /* gone */ } ghTask(() => ghDel('uploads/' + path.basename(old.file))); }
+    db.background = null; await saveDb(); return json(res, 200, { ok: true });
+  }
   if (p === '/api/admin/photos' && m === 'GET') return json(res, 200, { photos: db.photos.map(photoView) });
   if (p === '/api/photos' && m === 'POST') {
     const bm = /boundary=(?:"([^"]+)"|([^;]+))/i.exec(req.headers['content-type'] || '');
@@ -530,7 +558,7 @@ async function api(req, res, p, m) {
 
   if (p === '/api/backup.zip' && m === 'GET') {
     const entries = [{ name: 'items.json', data: Buffer.from(JSON.stringify(db, null, 1)) }];
-    for (const i of [...db.items, ...db.photos, ...db.showcase]) if (!i.seed) { try { entries.push({ name: 'uploads/' + i.file, data: await fsp.readFile(path.join(UPLOAD_DIR, i.file)) }); } catch { /* missing file */ } }
+    for (const i of [...db.items, ...db.photos, ...db.showcase, ...(db.background ? [db.background] : [])]) if (!i.seed) { try { entries.push({ name: 'uploads/' + i.file, data: await fsp.readFile(path.join(UPLOAD_DIR, i.file)) }); } catch { /* missing file */ } }
     return send(res, 200, buildZip(entries), { 'Content-Type': 'application/zip', 'Content-Disposition': 'attachment; filename="gallery-backup.zip"', 'Cache-Control': 'no-store' });
   }
   return json(res, 404, { error: 'Not found' });

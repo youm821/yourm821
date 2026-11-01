@@ -14,26 +14,38 @@
 <body class="showav">
 <div id="login" class="login" hidden>
   <h1>Admin</h1>
-  <div class="fields"><input id="pw" type="password" placeholder="Password" autocomplete="current-password"><button id="go" class="btn">Log in</button></div>
+  <div class="fields"><input id="pw" type="password" placeholder="Password" aria-label="Password" autocomplete="current-password"><button id="go" class="btn">Log in</button></div>
   <div id="lmsg" class="msg"></div>
   <p id="ylogin" hidden><a class="btn ghost" href="/login?next=admin">Log in with Yapin’ (for admins you added)</a></p>
   <p><a href="/">Back to gallery</a></p>
 </div>
 <div id="app" class="wrap" hidden>
-  <header style="display:flex;justify-content:space-between;align-items:center;padding:28px 0 0">
-    <h1 style="margin:0;font-size:26px">Admin</h1>
+  <header class="adminhead">
+    <h1>Admin</h1>
     <div class="row"><a class="btn ghost sm" href="/">View site</a><button id="logout" class="btn ghost sm">Log out</button></div>
   </header>
 
   <section class="panel"><h3>Site</h3>
     <div class="fields"><input id="s-title" type="text" placeholder="Title" maxlength="60"><input id="s-sub" type="text" placeholder="Subtitle" maxlength="160"><input id="s-support" type="url" placeholder="Support server link (https://…)" maxlength="300"><button id="s-save" class="btn sm">Save</button></div>
-    <label class="tog" style="margin-top:10px"><input id="s-auto" type="checkbox"> Show new showcase submissions right away (skip approval)</label>
+    <label class="tog" id="autolabel"><input id="s-auto" type="checkbox"> Show new showcase submissions right away (skip approval)</label>
     <div id="s-msg" class="msg"></div>
+  </section>
+
+  <section class="panel"><h3>Background</h3>
+    <div class="bgrow">
+      <div id="bgprev" class="bgprev"><span id="bgnone">No background</span></div>
+      <div class="bgctl">
+        <div class="fields"><input id="bg-file" type="file" accept="image/png,image/jpeg,image/webp,image/gif" aria-label="Background image"><button id="bg-go" class="btn sm" type="button">Upload</button><button id="bg-del" class="btn ghost sm" type="button" hidden>Remove</button></div>
+        <label class="dimrow" for="bg-dim"><span>Darken</span><input id="bg-dim" class="zoom" type="range" min="0" max="90" step="1" value="55"><output id="bg-dimv">55%</output></label>
+        <p class="note-text">JPG, PNG, WebP or GIF, up to 10 MB. Darkening keeps text easy to read.</p>
+        <div id="bg-msg" class="msg"></div>
+      </div>
+    </div>
   </section>
 
   <section class="panel"><h3>Profile photos</h3>
     <div id="photos" class="photos"></div>
-    <div class="fields" style="margin-top:14px"><input id="p-file" type="file" accept="image/png,image/jpeg,image/webp,image/gif" multiple><span style="color:var(--mute)">You get to crop each one.</span></div>
+    <div class="fields photo-add"><input id="p-file" type="file" accept="image/png,image/jpeg,image/webp,image/gif" multiple><span class="dim">You get to crop each one.</span></div>
     <div id="p-msg" class="msg"></div>
   </section>
 
@@ -43,13 +55,13 @@
     <div id="u-msg" class="msg"></div>
   </section>
 
-  <section class="panel"><h3>Items <span id="n" style="color:var(--mute);font-weight:400"></span></h3>
+  <section class="panel"><h3>Items <span id="n" class="dim"></span></h3>
     <div class="bar">
       <input id="f-q" type="search" placeholder="Search…">
       <select id="f-set"></select>
       <button id="selall" class="btn ghost sm">Select shown</button>
       <button id="selnone" class="btn ghost sm">Clear</button>
-      <span id="selcount" style="color:var(--mute)"></span>
+      <span id="selcount" class="dim"></span>
       <input id="b-set" type="text" list="sets" placeholder="Move selected to…" maxlength="40">
       <button id="b-move" class="btn sm">Move</button>
       <button id="b-hide" class="btn ghost sm">Hide</button>
@@ -60,36 +72,36 @@
     <div id="agrid" class="agrid"></div>
   </section>
 
-  <section class="panel"><h3>Showcase submissions <span id="sc-n" style="color:var(--mute);font-weight:400"></span></h3>
+  <section class="panel"><h3>Showcase submissions <span id="sc-n" class="dim"></span></h3>
     <div id="sc-list" class="users"></div>
   </section>
 
   <section class="panel"><h3>Staying awake</h3>
     <div id="up" class="statgrid"></div>
-    <p id="up-note" style="margin:10px 0 0;color:var(--mute)"></p>
+    <p id="up-note" class="note-text"></p>
   </section>
 
-  <section class="panel"><h3>Accounts <span id="u-n" style="color:var(--mute);font-weight:400"></span></h3>
-    <div id="u-info" style="color:var(--mute);margin-bottom:10px"></div>
+  <section class="panel"><h3>Accounts <span id="u-n" class="dim"></span></h3>
+    <div id="u-info" class="note-text"></div>
     <div id="users" class="users"></div>
   </section>
 
   <section class="panel"><h3>Cloud backup</h3>
-    <div id="c-status" style="color:var(--mute)">Checking…</div>
-    <div class="row" style="margin-top:10px"><button id="c-now" class="btn ghost sm" hidden>Back up everything now</button></div>
+    <div id="c-status" class="dim">Checking…</div>
+    <div class="row note-text"><button id="c-now" class="btn ghost sm" hidden>Back up everything now</button></div>
     <div id="c-msg" class="msg"></div>
   </section>
 
   <section class="panel"><h3>Download a copy</h3>
-    <p style="margin:0 0 10px;color:var(--mute)">Downloads your uploads and edits. Worth doing now and then, especially on a free Render plan.</p>
+    <p class="note-text">Downloads your uploads and edits. Worth doing now and then, especially on a free Render plan.</p>
     <a class="btn ghost sm" href="/api/backup.zip">Download backup (.zip)</a>
   </section>
   <datalist id="sets"></datalist>
-  <div id="crop" class="modal" hidden><div class="sheet">
-    <h3 style="margin:0 0 12px">Position your photo</h3>
+  <div id="crop" class="modal" role="dialog" aria-modal="true" hidden><div class="sheet">
+    <h3>Position your photo</h3>
     <div id="cview" class="cview"><img id="cimg" alt=""></div>
-    <input id="czoom" type="range" min="1" max="4" step="0.01" value="1" style="width:100%;margin-top:14px">
-    <p style="margin:6px 0 14px">Drag to move, slide to zoom. The circle is what shows.</p>
+    <input id="czoom" class="zoom" type="range" min="1" max="4" step="0.01" value="1" aria-label="Zoom">
+    <p>Drag to move, slide to zoom. The circle is what shows.</p>
     <div class="row"><button id="cok" class="btn">Use this</button><button id="ccancel" class="btn ghost">Cancel</button></div>
   </div></div>
 </div>

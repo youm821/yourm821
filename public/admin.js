@@ -44,7 +44,7 @@ $('#logout').onclick = async () => { await api('POST', '/api/logout', {}).catch(
 
 async function refresh() {
   const d = await api('GET', '/api/admin/items');
-  S.items = d.items;
+  S.items = d.items; drawBg(d.background);
   $('#s-auto').checked = !!d.settings.showcaseAuto; $('#s-title').value = d.settings.title; $('#s-sub').value = d.settings.subtitle || ''; $('#s-support').value = d.settings.supportUrl || '';
   const sets = [...new Set(S.items.map(i => i.set))];
   $('#sets').replaceChildren(...sets.map(s => { const o = el('option'); o.value = s; return o; }));
@@ -242,3 +242,28 @@ async function loadUptime() {
       : 'Self-check is off (no site address known). Set PUBLIC_URL to your site address to turn it on.';
   } catch { /* logged out */ }
 }
+
+// ---------- background ----------
+function drawBg(bg) {
+  const prev = $('#bgprev');
+  prev.style.backgroundImage = bg ? `linear-gradient(rgba(19,18,26,${bg.dim / 100}),rgba(19,18,26,${bg.dim / 100})),url("${bg.src}")` : '';
+  $('#bgnone').hidden = !!bg; $('#bg-del').hidden = !bg;
+  $('#bg-dim').value = bg ? bg.dim : 55; $('#bg-dimv').textContent = (bg ? bg.dim : 55) + '%';
+}
+$('#bg-go').onclick = async () => {
+  const file = $('#bg-file').files[0];
+  if (!file) return say('#bg-msg', 'Choose an image first.', 'err');
+  const fd = new FormData(); fd.append('file', file); say('#bg-msg', 'Uploading…');
+  try {
+    const r = await fetch('/api/background', { method: 'POST', body: fd, credentials: 'same-origin' });
+    const d = await r.json().catch(() => ({})); if (!r.ok) throw new Error(d.error || 'Upload failed');
+    drawBg(d); $('#bg-file').value = ''; say('#bg-msg', 'Background saved. It shows on the gallery now.', 'ok');
+  } catch (e) { say('#bg-msg', e.message, 'err'); }
+};
+$('#bg-del').onclick = async () => { try { await api('DELETE', '/api/background'); drawBg(null); say('#bg-msg', 'Background removed.', 'ok'); } catch (e) { say('#bg-msg', e.message, 'err'); } };
+let bgTimer;
+$('#bg-dim').oninput = e => {
+  const v = +e.target.value; $('#bg-dimv').textContent = v + '%';
+  const m = /url\("[^"]*"\)/.exec($('#bgprev').style.backgroundImage); if (m) $('#bgprev').style.backgroundImage = `linear-gradient(rgba(19,18,26,${v / 100}),rgba(19,18,26,${v / 100})),${m[0]}`;
+  clearTimeout(bgTimer); bgTimer = setTimeout(() => api('PATCH', '/api/background', { dim: v }).catch(x => say('#bg-msg', x.message, 'err')), 400);
+};

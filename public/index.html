@@ -13,10 +13,10 @@
 <body class="showav">
 <header class="top"><img id="me" class="me" alt="" hidden><div><h1 id="title">Pixel Decorations</h1><p id="subtitle"></p></div><a id="support" class="btn ghost sm support" target="_blank" rel="noopener noreferrer" hidden>Support server</a><div id="acct" class="acct"></div></header>
 <div id="note" class="note" hidden></div>
-<nav class="tabs"><button class="tab on" id="tab-gal">Gallery</button><button class="tab" id="tab-show">Showcase</button></nav>
+<nav class="tabs" aria-label="Sections"><button class="tab on" id="tab-gal">Gallery</button><button class="tab" id="tab-show">Showcase</button></nav>
 <div id="galwrap">
 <section class="tools">
-  <input id="q" type="search" placeholder="Search…" autocomplete="off">
+  <input id="q" type="search" placeholder="Search decorations" aria-label="Search decorations" autocomplete="off">
   <label class="tog"><input id="av" type="checkbox" checked> Preview on avatar</label>
 </section>
 <nav id="chips" class="chips"></nav>
@@ -25,14 +25,14 @@
 <section id="showwrap" class="showwrap" hidden>
   <div class="showhead"><div><h2>Community showcase</h2><p>Pixel art made by visitors. Log in with Yapin&rsquo; to share yours.</p></div><div id="shareBox"></div></div>
   <div id="shareForm" class="panel share" hidden>
-    <div class="fields"><input id="sh-title" type="text" placeholder="Name your work" maxlength="60"><input id="sh-file" type="file" accept="image/gif,image/png,image/webp"><button id="sh-go" class="btn" type="button">Submit</button></div>
+    <div class="fields"><input id="sh-title" type="text" placeholder="Name your work" aria-label="Name your work" maxlength="60"><input id="sh-file" type="file" accept="image/gif,image/png,image/webp"><button id="sh-go" class="btn" type="button">Submit</button></div>
     <div class="msg" id="sh-msg"></div>
-    <small style="color:var(--mute)">GIF, PNG or WebP, up to 5 MB, 16 to 1024 pixels. Only upload your own work.</small>
+    <small class="hint">GIF, PNG or WebP, up to 5 MB, 16 to 1024 pixels. Only upload your own work.</small>
   </div>
   <div id="showgrid"></div>
 </section>
 <footer class="foot"><span id="count"></span><span><a id="support2" target="_blank" rel="noopener noreferrer" hidden>Support server</a> <a href="/admin">Admin</a></span></footer>
-<div id="modal" class="modal" hidden>
+<div id="modal" class="modal" role="dialog" aria-modal="true" aria-labelledby="mtitle" hidden>
   <div class="sheet">
     <button class="x" id="close" aria-label="Close">&times;</button>
     <div class="stage"><div class="av"></div><img id="mimg" alt=""></div>
