@@ -97,3 +97,7 @@ h2.set span{color:var(--mute);font-weight:400;margin-left:8px}
 .statgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:10px}
 .stat{background:var(--bg);border:1px solid var(--line);border-radius:12px;padding:10px 12px}
 .stat small{display:block;color:var(--mute);font-size:12px}.stat b{font-size:16px}
+
+.badges{display:inline}.badge{display:inline-block;font-size:10px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;padding:2px 6px;border-radius:6px;margin-left:6px;vertical-align:middle;line-height:1.2;color:#fff}
+.badge.owner{background:var(--accent);color:#14141c}.badge.dev{background:var(--ring)}.badge.staff{background:#2fbf8f;color:#0d1f19}
+.support{margin-left:auto}.support+.acct{margin-left:12px}

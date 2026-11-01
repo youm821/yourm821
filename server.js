@@ -216,7 +216,10 @@ function userFromReq(req) {
   const id = p.slice(0, j);
   return db.users.find(u => u.id === id) || null;
 }
-const pubUser = u => (u ? { id: u.id, username: u.username, display_name: u.display_name, avatar_url: u.avatar_url } : null);
+const BADGES = { owner: 'Owner', dev: 'Dev', staff: 'Staff' }; // badges an admin can give to Yapin' accounts
+const cleanBadges = l => (Array.isArray(l) ? [...new Set(l)].filter(b => Object.hasOwn(BADGES, b)) : []);
+const cleanUrl = v => { try { const u = new URL(String(v || '').trim()); return u.protocol === 'https:' ? u.href.slice(0, 300) : ''; } catch { return ''; } };
+const pubUser = u => (u ? { id: u.id, username: u.username, display_name: u.display_name, avatar_url: u.avatar_url, badges: cleanBadges(u.badges) } : null);
 const okUrl = u => (typeof u === 'string' && /^https:\/\/[^\s"'()<>\\]{1,480}$/.test(u) ? u : null);
 
 // ---------- http helpers ----------
@@ -327,8 +330,8 @@ function dims(buf, ext) {
   try { if (ext === 'gif') return [buf.readUInt16LE(6), buf.readUInt16LE(8)]; if (ext === 'png') return [buf.readUInt32BE(16), buf.readUInt32BE(20)]; } catch { /* short file */ }
   return null;
 }
-const userBy = id => { const u = db.users.find(x => x.id === id); return u ? { name: u.display_name || u.username || 'Someone', username: u.username, avatar_url: u.avatar_url } : null; };
-const scView = (x, me) => ({ id: x.id, src: x.src, title: x.title, status: x.status, mine: !!(me && x.ownerId === me.id), by: userBy(x.ownerId) || { name: x.ownerName || 'Someone', username: null, avatar_url: null } });
+const userBy = id => { const u = db.users.find(x => x.id === id); return u ? { name: u.display_name || u.username || 'Someone', username: u.username, avatar_url: u.avatar_url, badges: cleanBadges(u.badges) } : null; };
+const scView = (x, me) => ({ id: x.id, src: x.src, title: x.title, status: x.status, mine: !!(me && x.ownerId === me.id), by: userBy(x.ownerId) || { name: x.ownerName || 'Someone', username: null, avatar_url: null, badges: [] } });
 async function removeShowcase(id) {
   const x = db.showcase.find(i => i.id === id); if (!x) return;
   try { await fsp.unlink(path.join(UPLOAD_DIR, path.basename(x.file))); } catch { /* gone */ }
@@ -401,7 +404,9 @@ async function api(req, res, p, m) {
 
   if (p === '/api/settings' && m === 'PUT') {
     const b = await readJson(req);
-    db.settings = { title: clean(b.title, 60) || 'Pixel Decorations', subtitle: clean(b.subtitle, 160), showcaseAuto: !!b.showcaseAuto };
+    const supportUrl = cleanUrl(b.supportUrl);
+    if (String(b.supportUrl || '').trim() && !supportUrl) return json(res, 400, { error: 'The support link must be a full https:// address.' });
+    db.settings = { title: clean(b.title, 60) || 'Pixel Decorations', subtitle: clean(b.subtitle, 160), showcaseAuto: !!b.showcaseAuto, supportUrl };
     await saveDb(); return json(res, 200, db.settings);
   }
 
@@ -452,9 +457,16 @@ async function api(req, res, p, m) {
     return json(res, 200, { added: added.map(photoView), rejected });
   }
   if (p === '/api/admin/users' && m === 'GET')
-    return json(res, 200, { login: loginOn, redirectUrl: baseUrl(req) + CB_PATH, yapin: YAPIN, hasId: !!Y_ID, hasSecret: !!Y_SECRET, lastError: loginDiag.error, lastErrorAt: loginDiag.at, owner: isOwner(req), users: [...db.users].sort((a, b) => (b.lastLogin || 0) - (a.lastLogin || 0)).map(u => ({ ...pubUser(u), admin: !!u.admin, firstSeen: u.firstSeen, lastLogin: u.lastLogin })) });
+    return json(res, 200, { login: loginOn, redirectUrl: baseUrl(req) + CB_PATH, yapin: YAPIN, hasId: !!Y_ID, hasSecret: !!Y_SECRET, lastError: loginDiag.error, lastErrorAt: loginDiag.at, owner: isOwner(req), badgeList: BADGES, users: [...db.users].sort((a, b) => (b.lastLogin || 0) - (a.lastLogin || 0)).map(u => ({ ...pubUser(u), admin: !!u.admin, firstSeen: u.firstSeen, lastLogin: u.lastLogin })) });
   if (p === '/api/admin/showcase' && m === 'GET') return json(res, 200, { auto: !!db.settings.showcaseAuto, items: db.showcase.map(x => scView(x, null)) });
   let am;
+  if ((am = /^\/api\/admin\/users\/([\w-]{1,64})\/badges$/.exec(p)) && m === 'PUT') {
+    if (!isOwner(req)) return json(res, 403, { error: 'Only the main admin (password login) can give badges.' });
+    const u = db.users.find(x => x.id === am[1]); if (!u) return json(res, 404, { error: 'Not found' });
+    u.badges = cleanBadges((await readJson(req)).badges);
+    await saveDb();
+    return json(res, 200, { ok: true, badges: u.badges });
+  }
   if ((am = /^\/api\/admin\/users\/([\w-]{1,64})\/admin$/.exec(p)) && m === 'PUT') {
     if (!isOwner(req)) return json(res, 403, { error: 'Only the main admin (password login) can make or remove admins.' });
     const u = db.users.find(x => x.id === am[1]); if (!u) return json(res, 404, { error: 'Not found' });

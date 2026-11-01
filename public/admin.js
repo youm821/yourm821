@@ -13,6 +13,7 @@ async function api(method, url, body) {
 }
 const say = (id, text, kind) => { const m = $(id); m.textContent = text || ''; m.className = 'msg' + (kind ? ' ' + kind : ''); };
 
+function badgeRow(list) { const r = el('span', 'badges'); for (const b of list || []) r.append(el('span', 'badge ' + b, b.charAt(0).toUpperCase() + b.slice(1))); return r; }
 function showLogin() { $('#app').hidden = true; $('#login').hidden = false; $('#pw').focus(); }
 async function boot() {
   const me = await (await fetch('/api/me', { credentials: 'same-origin' })).json();
@@ -44,7 +45,7 @@ $('#logout').onclick = async () => { await api('POST', '/api/logout', {}).catch(
 async function refresh() {
   const d = await api('GET', '/api/admin/items');
   S.items = d.items;
-  $('#s-auto').checked = !!d.settings.showcaseAuto; $('#s-title').value = d.settings.title; $('#s-sub').value = d.settings.subtitle || '';
+  $('#s-auto').checked = !!d.settings.showcaseAuto; $('#s-title').value = d.settings.title; $('#s-sub').value = d.settings.subtitle || ''; $('#s-support').value = d.settings.supportUrl || '';
   const sets = [...new Set(S.items.map(i => i.set))];
   $('#sets').replaceChildren(...sets.map(s => { const o = el('option'); o.value = s; return o; }));
   const cur = $('#f-set').value;
@@ -99,7 +100,7 @@ $('#b-move').onclick = () => bulk('move', { set: $('#b-set').value });
 $('#b-hide').onclick = () => bulk('hide'); $('#b-show').onclick = () => bulk('show'); $('#b-del').onclick = () => bulk('delete');
 
 $('#s-save').onclick = async () => {
-  try { await api('PUT', '/api/settings', { title: $('#s-title').value, subtitle: $('#s-sub').value, showcaseAuto: $('#s-auto').checked }); say('#s-msg', 'Saved.', 'ok'); }
+  try { await api('PUT', '/api/settings', { title: $('#s-title').value, subtitle: $('#s-sub').value, showcaseAuto: $('#s-auto').checked, supportUrl: $('#s-support').value }); say('#s-msg', 'Saved.', 'ok'); }
   catch (e) { say('#s-msg', e.message, 'err'); }
 };
 
@@ -193,12 +194,18 @@ async function loadUsers() {
   for (const u of d.users) {
     const c = el('div', 'u'); const name = u.display_name || u.username || u.id;
     if (u.avatar_url) { const im = el('img'); im.src = u.avatar_url; im.alt = ''; im.referrerPolicy = 'no-referrer'; c.append(im); } else c.append(el('div', 'ini', name.slice(0, 1).toUpperCase()));
-    const t = el('div', 't'); t.append(el('b', '', name), el('span', '', (u.username ? '@' + u.username + ' · ' : '') + (u.lastLogin ? new Date(u.lastLogin).toLocaleDateString() : ''))); c.append(t);
+    const t = el('div', 't'); t.append(el('b', '', name), badgeRow(u.badges), el('span', '', (u.username ? '@' + u.username + ' · ' : '') + (u.lastLogin ? new Date(u.lastLogin).toLocaleDateString() : ''))); c.append(t);
     const rm = el('button', 'btn danger sm', 'Remove'); rm.onclick = async () => { if (!confirm('Remove ' + name + '? They can log in again.')) return; await api('DELETE', '/api/users/' + encodeURIComponent(u.id)); loadUsers(); };
     if (d.owner) {
       const ad = el('button', 'btn ghost sm', u.admin ? 'Remove admin' : 'Make admin');
       ad.onclick = async () => { if (!confirm((u.admin ? 'Remove admin from ' : 'Give admin to ') + name + '?' + (u.admin ? '' : ' They will be able to change everything on the site except adding other admins.'))) return; await api('PUT', '/api/admin/users/' + encodeURIComponent(u.id) + '/admin', { admin: !u.admin }); loadUsers(); };
       c.append(ad);
+    }
+    if (d.owner) for (const [key, label] of Object.entries(d.badgeList || {})) {
+      const has = (u.badges || []).includes(key);
+      const bb = el('button', 'btn ghost sm', (has ? 'Remove ' : 'Give ') + label + ' badge');
+      bb.onclick = async () => { const next = has ? u.badges.filter(x => x !== key) : [...(u.badges || []), key]; try { await api('PUT', '/api/admin/users/' + encodeURIComponent(u.id) + '/badges', { badges: next }); loadUsers(); } catch (e) { alert(e.message); } };
+      c.append(bb);
     }
     if (u.admin) t.append(el('span', '', ' \u00b7 admin'));
     c.append(rm); box.append(c);
