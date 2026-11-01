@@ -33,9 +33,9 @@ h2.set span{color:var(--mute);font-weight:400;margin-left:8px}
 .empty{color:var(--mute);padding:40px 0;text-align:center}
 .foot{max-width:1200px;margin:0 auto;padding:20px;display:flex;justify-content:space-between;color:var(--mute);border-top:1px solid var(--line)}
 .foot a{color:var(--mute)}
-.modal{position:fixed;inset:0;background:rgba(8,8,14,.8);display:flex;align-items:center;justify-content:center;padding:20px;z-index:10}
+.modal{position:fixed;inset:0;background:rgba(8,8,14,.8);display:flex;align-items:center;justify-content:center;padding:20px;z-index:100}
 .modal[hidden]{display:none}
-.sheet{background:var(--panel);border:1px solid var(--line);border-radius:18px;padding:18px;width:min(420px,100%);position:relative}
+.sheet{background:var(--panel);border:1px solid var(--line);border-radius:18px;padding:18px;width:min(420px,100%);position:relative;max-height:100%;overflow:auto}
 .sheet .stage{border-radius:12px}
 .sheet h2{margin:14px 0 2px;font-size:19px}
 .sheet p{margin:0 0 14px;color:var(--mute)}
@@ -212,3 +212,8 @@ body.g-l .grid{grid-template-columns:repeat(auto-fill,minmax(220px,1fr))}
 }
 .hero.hasbanner .top .btn.ghost{color:#fff;border-color:rgba(255,255,255,.55)}
 @media (max-width:600px){.hero.hasbanner .top{padding-bottom:40px}}
+
+/* likes */
+.card{position:relative}
+.like{position:absolute;top:14px;right:14px;z-index:2;background:rgba(20,20,28,.78);border:1px solid var(--line);color:#ecebf5;border-radius:999px;padding:3px 9px;font:inherit;font-size:12px;font-weight:700;cursor:pointer;backdrop-filter:blur(4px)}
+.like:hover{border-color:#ff5d8f}.like.on{color:#ff5d8f;border-color:#ff5d8f}

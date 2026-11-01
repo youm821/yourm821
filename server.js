@@ -123,6 +123,10 @@ let db = { settings: { title: 'Pixel Decorations', subtitle: 'Avatar decorations
 try { db = { ...db, ...JSON.parse(fs.readFileSync(DB_FILE, 'utf8')) }; } catch { /* first run */ }
 await restoreFromCloud();
 db.partners = db.partners || [];
+db.likes = db.likes && typeof db.likes === 'object' ? db.likes : {}; // item id -> [user ids]
+db.views = db.views && typeof db.views === 'object' ? db.views : {}; // item id -> times opened
+let viewsDirty = false;
+setInterval(() => { if (viewsDirty) { viewsDirty = false; saveDb(); } }, 60000).unref();
 db.settings = { title: 'Pixel Decorations', subtitle: '', ...db.settings };
 
 function syncSeed() {
@@ -164,11 +168,12 @@ function saveDb() {
 }
 await saveDb();
 
-const pub = i => ({ id: i.id, src: i.src, title: i.title, set: i.set });
+const likeInfo = (id, me) => { const l = (db.likes && db.likes[id]) || []; return { likes: l.length, liked: !!(me && l.includes(me.id)) }; };
+const pub = (i, me) => ({ id: i.id, src: i.src, title: i.title, set: i.set, ...likeInfo(i.id, me || null) });
 const ptView = p => ({ id: p.id, name: p.name, blurb: p.blurb || '', url: p.url || '', kind: p.kind || 'partner', cover: p.file ? '/uploads/' + p.file : null, coverFile: p.file || null, works: (p.works || []).map(w => ({ file: w.file, src: '/uploads/' + w.file })) });
 const photoView = p => ({ id: p.id, src: p.src, seed: !!p.seed, active: p.id === db.activePhoto });
 const activePhotoSrc = () => db.photos.find(p => p.id === db.activePhoto)?.src || null;
-const adminView = i => ({ ...pub(i), hidden: !!i.hidden, seed: !!i.seed });
+const adminView = i => ({ ...pub(i), views: (db.views && db.views[i.id]) || 0, hidden: !!i.hidden, seed: !!i.seed });
 
 // ---------- auth ----------
 const sign = p => crypto.createHmac('sha256', SECRET).update(p).digest('base64url');
@@ -220,9 +225,10 @@ function userFromReq(req) {
   const j = p.lastIndexOf('.');
   if (!(Number(p.slice(j + 1)) > Date.now())) return null;
   const id = p.slice(0, j);
-  return db.users.find(u => u.id === id) || null;
+  const u = db.users.find(x => x.id === id);
+  return u && !u.banned ? u : null; // banned accounts act as logged out
 }
-const BADGES = { owner: 'Owner', dev: 'Dev', staff: 'Staff', mod: 'Moderator', partner: 'Partner', supporter: 'Supporter', vip: 'VIP', bughunter: 'Bug Hunter' }; // badges an admin can give to Yapin' accounts
+const BADGES = { owner: 'Owner', dev: 'Dev', staff: 'Staff', mod: 'Moderator', partner: 'Partner', supporter: 'Supporter', vip: 'VIP', bughunter: 'Bug Hunter', creator: 'Creator', og: 'OG', booster: 'Booster', verified: 'Verified', winner: 'Winner', helper: 'Helper', holiday: 'Holiday', halloween: 'Halloween' }; // badges an admin can give to Yapin' accounts
 const cleanBadges = l => (Array.isArray(l) ? [...new Set(l)].filter(b => Object.hasOwn(BADGES, b)) : []);
 const cleanUrl = v => { try { const u = new URL(String(v || '').trim()); return u.protocol === 'https:' ? u.href.slice(0, 300) : ''; } catch { return ''; } };
 const pubUser = u => (u ? { id: u.id, username: u.username, display_name: u.display_name, avatar_url: u.avatar_url, badges: cleanBadges(u.badges) } : null);
@@ -337,7 +343,12 @@ function dims(buf, ext) {
   return null;
 }
 const userBy = id => { const u = db.users.find(x => x.id === id); return u ? { name: u.display_name || u.username || 'Someone', username: u.username, avatar_url: u.avatar_url, badges: cleanBadges(u.badges) } : null; };
-const scView = (x, me) => ({ id: x.id, src: x.src, title: x.title, status: x.status, mine: !!(me && x.ownerId === me.id), by: userBy(x.ownerId) || { name: x.ownerName || 'Someone', username: null, avatar_url: null, badges: [] } });
+const ownerBanned = x => !!db.users.find(u => u.id === x.ownerId)?.banned;
+function autoCreator(ownerId) { // first approved showcase work earns the Creator badge, once
+  const u = db.users.find(x => x.id === ownerId); if (!u || u.creatorGiven) return;
+  u.creatorGiven = true; u.badges = cleanBadges([...(u.badges || []), 'creator']);
+}
+const scView = (x, me) => ({ id: x.id, src: x.src, title: x.title, status: x.status, ...likeInfo(x.id, me), mine: !!(me && x.ownerId === me.id), by: userBy(x.ownerId) || { name: x.ownerName || 'Someone', username: null, avatar_url: null, badges: [] } });
 async function removeShowcase(id) {
   const x = db.showcase.find(i => i.id === id); if (!x) return;
   try { await fsp.unlink(path.join(UPLOAD_DIR, path.basename(x.file))); } catch { /* gone */ }
@@ -345,9 +356,10 @@ async function removeShowcase(id) {
   db.showcase = db.showcase.filter(i => i.id !== id); await saveDb();
 }
 
+const viewSeen = new Map();
 async function api(req, res, p, m) {
   if (p === '/api/partners' && m === 'GET') return json(res, 200, { partners: (db.partners || []).map(ptView) });
-  if (p === '/api/items' && m === 'GET') return json(res, 200, { settings: db.settings, photo: activePhotoSrc(), items: db.items.filter(i => !i.hidden).map(pub) });
+  if (p === '/api/items' && m === 'GET') return json(res, 200, { settings: db.settings, photo: activePhotoSrc(), items: db.items.filter(i => !i.hidden).map(i => pub(i, userFromReq(req))) });
   if (p === '/api/me' && m === 'GET') return json(res, 200, { admin: isAdmin(req), owner: isOwner(req), configured: !!PASSWORD, login: loginOn, user: pubUser(userFromReq(req)) });
   if (p === '/api/user/logout' && m === 'POST') {
     if (!sameOrigin(req)) return json(res, 403, { error: 'Bad origin' });
@@ -369,7 +381,7 @@ async function api(req, res, p, m) {
 
   if (p === '/api/showcase' && m === 'GET') {
     const me = userFromReq(req);
-    return json(res, 200, { enabled: loginOn, auto: !!db.settings.showcaseAuto, items: db.showcase.filter(x => x.status === 'approved' || (me && x.ownerId === me.id)).map(x => scView(x, me)) });
+    return json(res, 200, { enabled: loginOn, auto: !!db.settings.showcaseAuto, items: db.showcase.filter(x => (x.status === 'approved' && !ownerBanned(x)) || (me && x.ownerId === me.id)).map(x => scView(x, me)) });
   }
   if (p === '/api/showcase' && m === 'POST') {
     const me = userFromReq(req);
@@ -393,7 +405,7 @@ async function api(req, res, p, m) {
     ghTask(() => ghPut('uploads/' + file, f.body));
     const title = clean(parts.find(x => x.name === 'title' && x.filename === undefined)?.body.toString('utf8'), 60) || titleFrom(f.filename);
     const entry = { id: 'sc-' + id, src: '/uploads/' + file, file, title, ownerId: me.id, ownerName: me.display_name || me.username || '', status: db.settings.showcaseAuto ? 'approved' : 'pending', created: Date.now() };
-    db.showcase.unshift(entry); await saveDb();
+    db.showcase.unshift(entry); if (entry.status === 'approved') autoCreator(me.id); await saveDb();
     return json(res, 200, scView(entry, me));
   }
   let sm;
@@ -402,6 +414,28 @@ async function api(req, res, p, m) {
     if (!me || !x || x.ownerId !== me.id) return json(res, 404, { error: 'Not found' });
     if (!sameOrigin(req)) return json(res, 403, { error: 'Bad origin' });
     await removeShowcase(x.id); return json(res, 200, { ok: true });
+  }
+
+  const known = id => db.items.some(i => i.id === id && !i.hidden) || db.showcase.some(i => i.id === id && i.status === 'approved' && !ownerBanned(i));
+  if (p === '/api/like' && m === 'POST') {
+    const me = userFromReq(req);
+    if (!me) return json(res, 401, { error: 'Log in with Yapin\u2019 to like things.' });
+    if (!sameOrigin(req)) return json(res, 403, { error: 'Bad origin' });
+    const id = String((await readJson(req)).id || '').slice(0, 80);
+    if (!known(id)) return json(res, 404, { error: 'Not found' });
+    const l = db.likes[id] || (db.likes[id] = []), at = l.indexOf(me.id);
+    if (at >= 0) l.splice(at, 1); else l.push(me.id);
+    if (!l.length) delete db.likes[id];
+    await saveDb(); return json(res, 200, likeInfo(id, me));
+  }
+  if (p === '/api/view' && m === 'POST') {
+    if (!sameOrigin(req)) return json(res, 403, { error: 'Bad origin' });
+    const id = String((await readJson(req)).id || '').slice(0, 80);
+    if (!known(id)) return json(res, 404, { error: 'Not found' });
+    const k = clientIp(req) + '|' + id, now = Date.now();
+    if (!(viewSeen.get(k) > now - 30 * 60e3)) { viewSeen.set(k, now); db.views[id] = (db.views[id] || 0) + 1; viewsDirty = true; }
+    if (viewSeen.size > 5000) for (const [kk, t] of viewSeen) if (t < now - 30 * 60e3) viewSeen.delete(kk);
+    return json(res, 200, { ok: true });
   }
 
   if (!isAdmin(req)) return json(res, 401, { error: 'Login required' });
@@ -464,9 +498,29 @@ async function api(req, res, p, m) {
     return json(res, 200, { added: added.map(photoView), rejected });
   }
   if (p === '/api/admin/users' && m === 'GET')
-    return json(res, 200, { login: loginOn, redirectUrl: baseUrl(req) + CB_PATH, yapin: YAPIN, hasId: !!Y_ID, hasSecret: !!Y_SECRET, lastError: loginDiag.error, lastErrorAt: loginDiag.at, owner: isOwner(req), badgeList: BADGES, users: [...db.users].sort((a, b) => (b.lastLogin || 0) - (a.lastLogin || 0)).map(u => ({ ...pubUser(u), admin: !!u.admin, firstSeen: u.firstSeen, lastLogin: u.lastLogin })) });
+    return json(res, 200, { login: loginOn, redirectUrl: baseUrl(req) + CB_PATH, yapin: YAPIN, hasId: !!Y_ID, hasSecret: !!Y_SECRET, lastError: loginDiag.error, lastErrorAt: loginDiag.at, owner: isOwner(req), badgeList: BADGES, users: [...db.users].sort((a, b) => (b.lastLogin || 0) - (a.lastLogin || 0)).map(u => ({ ...pubUser(u), admin: !!u.admin, banned: !!u.banned, firstSeen: u.firstSeen, lastLogin: u.lastLogin })) });
   if (p === '/api/admin/showcase' && m === 'GET') return json(res, 200, { auto: !!db.settings.showcaseAuto, items: db.showcase.map(x => scView(x, null)) });
   let am;
+  if (p === '/api/admin/users/grant-og' && m === 'POST') {
+    if (!isOwner(req)) return json(res, 403, { error: 'Only the main admin (password login) can give badges.' });
+    const n = Math.max(1, Math.min(500, Number((await readJson(req)).count) || 0));
+    const first = [...db.users].sort((a, b) => (a.firstSeen || 0) - (b.firstSeen || 0)).slice(0, n);
+    for (const u of first) u.badges = cleanBadges([...(u.badges || []), 'og']);
+    await saveDb(); return json(res, 200, { ok: true, given: first.length });
+  }
+  if ((am = /^\/api\/admin\/users\/([\w-]{1,64})\/ban$/.exec(p)) && m === 'PUT') {
+    const u = db.users.find(x => x.id === am[1]); if (!u) return json(res, 404, { error: 'Not found' });
+    if (userFromReq(req)?.id === u.id) return json(res, 400, { error: 'You cannot ban yourself.' });
+    if (u.admin && !isOwner(req)) return json(res, 403, { error: 'Only the main admin (password login) can ban an admin.' });
+    u.banned = !!(await readJson(req)).banned;
+    await saveDb(); return json(res, 200, { ok: true, banned: u.banned });
+  }
+  if (p === '/api/admin/popular' && m === 'GET') {
+    const all = [...db.items.filter(i => !i.hidden).map(i => ({ id: i.id, src: i.src, title: i.title, set: i.set })), ...db.showcase.filter(i => i.status === 'approved').map(i => ({ id: i.id, src: i.src, title: i.title, set: 'Showcase' }))]
+      .map(i => ({ ...i, views: db.views[i.id] || 0, likes: (db.likes[i.id] || []).length }));
+    const top = f => [...all].filter(i => i[f] > 0).sort((a, b) => b[f] - a[f]).slice(0, 10);
+    return json(res, 200, { byViews: top('views'), byLikes: top('likes') });
+  }
   if ((am = /^\/api\/admin\/users\/([\w-]{1,64})\/badges$/.exec(p)) && m === 'PUT') {
     if (!isOwner(req)) return json(res, 403, { error: 'Only the main admin (password login) can give badges.' });
     const u = db.users.find(x => x.id === am[1]); if (!u) return json(res, 404, { error: 'Not found' });
@@ -484,7 +538,7 @@ async function api(req, res, p, m) {
   if ((am = /^\/api\/admin\/showcase\/([\w-]+)$/.exec(p))) {
     const x = db.showcase.find(i => i.id === am[1]);
     if (!x) return json(res, 404, { error: 'Not found' });
-    if (m === 'PATCH') { const b = await readJson(req); if (b.status === 'approved' || b.status === 'pending') x.status = b.status; await saveDb(); return json(res, 200, scView(x, null)); }
+    if (m === 'PATCH') { const b = await readJson(req); if (b.status === 'approved' || b.status === 'pending') x.status = b.status; if (x.status === 'approved') autoCreator(x.ownerId); await saveDb(); return json(res, 200, scView(x, null)); }
     if (m === 'DELETE') { await removeShowcase(x.id); return json(res, 200, { ok: true }); }
   }
   if (p === '/api/status' && m === 'GET')
@@ -669,6 +723,7 @@ async function finishLogin(req, res, url) {
     const me = await mr.json(), id = String(me.id ?? '');
     if (!/^[\w-]{1,64}$/.test(id)) throw new Error('unexpected id');
     let u = db.users.find(x => x.id === id);
+    if (u && u.banned) return back('banned');
     if (!u) { u = { id, firstSeen: Date.now() }; db.users.push(u); }
     Object.assign(u, { username: clean(me.username, 40), display_name: me.display_name ? clean(me.display_name, 60) : null, avatar_url: okUrl(me.avatar_url), lastLogin: Date.now() });
     await saveDb();

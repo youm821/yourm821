@@ -91,7 +91,7 @@ async function boot() {
   $('#login').hidden = true; $('#app').hidden = false;
   await refresh();
   setupTabs(); loadStrip(); setInterval(loadStrip, 20000);
-  loadSync(); setInterval(loadSync, 15000); loadPhotos(); loadPartners(); loadUsers().catch(e => { console.error(e); $('#users').replaceChildren(el('div', 'empty', 'Could not load accounts: ' + e.message)); }); loadShowcase(); loadUptime(); setInterval(loadUptime, 20000);
+  loadSync(); setInterval(loadSync, 15000); loadPhotos(); loadPartners(); loadUsers().catch(e => { console.error(e); $('#users').replaceChildren(el('div', 'empty', 'Could not load accounts: ' + e.message)); }); loadShowcase(); loadPopular().catch(e => console.error(e)); loadUptime(); setInterval(loadUptime, 20000);
 }
 async function loadSync() {
   try {
@@ -265,39 +265,91 @@ $('#p-file').onchange = async e => {
 };
 
 // ---------- accounts (people who logged in with Yapin') ----------
-async function loadUsers() {
-  const d = await api('GET', '/api/admin/users'); const box = $('#users'); box.replaceChildren();
+let USERS = null;
+async function loadUsers() { USERS = await api('GET', '/api/admin/users'); drawUsers(); }
+function drawUsers() {
+  const d = USERS; if (!d) return;
+  const box = $('#users'); box.replaceChildren();
   $('#u-n').textContent = '(' + d.users.length + ')';
   $('#u-info').textContent = d.login ? 'Login with Yapin\u2019 is on. Everyone who logged in appears here.' : 'Login with Yapin\u2019 is off. Set YAPPER_CLIENT_ID and YAPPER_CLIENT_SECRET on the server (see the README).';
   const info = $('#u-info');
   info.append(el('br'), 'Redirect URL to register in Yapin\u2019 (must match exactly): ', el('b', '', d.redirectUrl));
   info.append(el('br'), 'Client ID: ' + (d.hasId ? 'set' : 'MISSING') + ' \u00b7 Client secret: ' + (d.hasSecret ? 'set' : 'MISSING') + ' \u00b7 Yapin\u2019 address: ' + d.yapin);
+  if (typeof badgeRow !== 'function') info.append(el('br'), el('b', '', 'Badge icons are not loading: upload public/badges.js to your site and redeploy.'));
   if (d.lastError) info.append(el('br'), el('b', '', 'Last login problem' + (d.lastErrorAt ? ' (' + new Date(d.lastErrorAt).toLocaleString() + ')' : '') + ': '), d.lastError);
-  if (!d.users.length) box.append(el('div', 'empty', 'Nobody has logged in yet.'));
-  for (const u of d.users) { try {
+
+  // owner tool: OG badge for the first accounts
+  const og = $('#u-og'); og.replaceChildren(); og.hidden = !d.owner;
+  if (d.owner) {
+    const n = el('input'); n.type = 'number'; n.min = 1; n.max = 500; n.value = 10; n.style.width = '80px';
+    const go = el('button', 'btn ghost sm', 'Give the OG badge to the first accounts');
+    go.onclick = async () => {
+      const c = Math.max(1, Math.min(500, Number(n.value) || 0));
+      if (!confirm('Give the OG badge to the first ' + c + ' accounts that ever logged in?')) return;
+      try { const r = await api('POST', '/api/admin/users/grant-og', { count: c }); alert('Done. ' + r.given + ' accounts now have the OG badge.'); loadUsers(); } catch (e) { alert(e.message); }
+    };
+    og.append(n, go);
+  }
+
+  const q = (($('#u-q') || {}).value || '').trim().toLowerCase(), sort = ($('#u-sort') || {}).value || 'recent';
+  const nm = u => String(u.display_name || u.username || u.id || '').toLowerCase();
+  const sorts = {
+    recent: (a, b) => (b.lastLogin || 0) - (a.lastLogin || 0), newest: (a, b) => (b.firstSeen || 0) - (a.firstSeen || 0),
+    oldest: (a, b) => (a.firstSeen || 0) - (b.firstSeen || 0), name: (a, b) => nm(a).localeCompare(nm(b)),
+    admins: (a, b) => (b.admin ? 1 : 0) - (a.admin ? 1 : 0) || nm(a).localeCompare(nm(b))
+  };
+  const list = d.users.filter(u => !q || [u.display_name, u.username, u.id].join(' ').toLowerCase().includes(q)).sort(sorts[sort] || sorts.recent);
+  if (!list.length) box.append(el('div', 'empty', d.users.length ? 'No accounts match your search.' : 'Nobody has logged in yet.'));
+  for (const u of list) { try {
     const name = String(u.display_name || u.username || u.id || 'Someone'); const c = el('div', 'u');
+    if (u.banned) c.style.opacity = '.6';
     if (u.avatar_url) { const im = el('img'); im.src = u.avatar_url; im.alt = ''; im.referrerPolicy = 'no-referrer'; c.append(im); } else c.append(el('div', 'ini', name.slice(0, 1).toUpperCase()));
-    const t = el('div', 't'); t.append(el('b', '', name), (typeof badgeRow === 'function' ? badgeRow(u.badges) : el('span')), el('span', '', (u.username ? '@' + u.username + ' · ' : '') + (u.lastLogin ? new Date(u.lastLogin).toLocaleDateString() : ''))); c.append(t);
-    const rm = el('button', 'btn danger sm', 'Remove'); rm.onclick = async () => { if (!confirm('Remove ' + name + '? They can log in again.')) return; await api('DELETE', '/api/users/' + encodeURIComponent(u.id)); loadUsers(); };
+    const t = el('div', 't'); t.append(el('b', '', name), (typeof badgeRow === 'function' ? badgeRow(u.badges) : el('span')), el('span', '', (u.username ? '@' + u.username + ' \u00b7 ' : '') + (u.lastLogin ? new Date(u.lastLogin).toLocaleDateString() : ''))); c.append(t);
+    if (u.admin || u.banned) t.append(el('span', '', (u.admin ? 'admin' : '') + (u.admin && u.banned ? ' \u00b7 ' : '') + (u.banned ? 'banned' : '')));
+    const rm = el('button', 'btn danger sm', 'Remove'); rm.title = 'Deletes the account record. They can log in again.';
+    rm.onclick = async () => { if (!confirm('Remove ' + name + '? They can log in again.')) return; await api('DELETE', '/api/users/' + encodeURIComponent(u.id)); loadUsers(); };
+    const bn = el('button', 'btn ghost sm', u.banned ? 'Unban' : 'Ban'); bn.title = u.banned ? 'Let them log in again' : 'Blocks login and hides their showcase work';
+    bn.onclick = async () => {
+      if (!confirm((u.banned ? 'Unban ' : 'Ban ') + name + '?' + (u.banned ? '' : ' They will not be able to log in and their showcase work is hidden.'))) return;
+      try { await api('PUT', '/api/admin/users/' + encodeURIComponent(u.id) + '/ban', { banned: !u.banned }); loadUsers(); } catch (e) { alert(e.message); }
+    };
     if (d.owner) {
       const ad = el('button', 'btn ghost sm', u.admin ? 'Remove admin' : 'Make admin');
       ad.onclick = async () => { if (!confirm((u.admin ? 'Remove admin from ' : 'Give admin to ') + name + '?' + (u.admin ? '' : ' They will be able to change everything on the site except adding other admins.'))) return; await api('PUT', '/api/admin/users/' + encodeURIComponent(u.id) + '/admin', { admin: !u.admin }); loadUsers(); };
       c.append(ad);
     }
+    c.append(bn, rm);
     if (d.owner) {
       const tg = el('div', 'bdgpick');
       for (const [key, label] of Object.entries(d.badgeList || {})) {
         const has = (u.badges || []).includes(key);
-        const bb = el('button', 'bdgbtn' + (has ? ' on' : '')); bb.title = (has ? 'Remove ' : 'Give ') + label + ' badge'; bb.style.setProperty('--bc', ((typeof BADGE_DEFS !== 'undefined' && BADGE_DEFS[key]) || {}).color || '#888');
+        const bb = el('button', 'bdgbtn' + (has ? ' on' : '')); bb.title = (has ? 'Remove ' : 'Give ') + label + ' badge' + (typeof BADGE_DESC !== 'undefined' && BADGE_DESC[key] ? ' (' + BADGE_DESC[key] + ')' : '');
+        bb.style.setProperty('--bc', ((typeof BADGE_DEFS !== 'undefined' && BADGE_DEFS[key]) || {}).color || '#888');
         const ic = typeof badgeIcon === 'function' ? badgeIcon(key, 16) : null; if (ic) bb.append(ic); else bb.textContent = label;
         bb.onclick = async () => { const next = has ? u.badges.filter(x => x !== key) : [...(u.badges || []), key]; try { await api('PUT', '/api/admin/users/' + encodeURIComponent(u.id) + '/badges', { badges: next }); loadUsers(); } catch (e) { alert(e.message); } };
         tg.append(bb);
       }
-      c._pick = tg;
+      c.append(tg);
     }
-    if (u.admin) t.append(el('span', '', ' \u00b7 admin'));
-    c.append(rm); if (c._pick) c.append(c._pick); box.append(c);
+    box.append(c);
   } catch (e) { console.error(e); box.append(el('div', 'empty', 'Could not show account ' + ((u && u.id) || '?') + ': ' + e.message)); } }
+}
+if ($('#u-q')) { $('#u-q').oninput = drawUsers; $('#u-sort').onchange = drawUsers; }
+
+// ---------- popular (views + likes) ----------
+async function loadPopular() {
+  const d = await api('GET', '/api/admin/popular'), box = $('#pop'); box.replaceChildren();
+  if (!d.byViews.length && !d.byLikes.length) { box.append(el('div', 'empty', 'Nothing yet. Counts start when people open or like decorations.')); return; }
+  for (const [title, list, key] of [['Most viewed', d.byViews, 'views'], ['Most loved', d.byLikes, 'likes']]) {
+    if (!list.length) continue;
+    const h = el('h4', '', title); h.style.margin = '14px 0 8px'; box.append(h);
+    const g = el('div', 'users');
+    for (const i of list) {
+      const c = el('div', 'u'); const im = el('img'); im.src = i.src; im.alt = ''; im.style.borderRadius = '8px'; c.append(im);
+      const t = el('div', 't'); t.append(el('b', '', i.title), el('span', '', i.set + ' \u00b7 ' + i[key] + ' ' + key)); c.append(t); g.append(c);
+    }
+    box.append(g);
+  }
 }
 
 // ---------- showcase review ----------

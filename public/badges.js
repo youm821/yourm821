@@ -72,7 +72,79 @@ const BADGE_DEFS = {
     '#.#####.#',
     '..#####..',
     '...###...'] },
+  creator: { label: 'Creator', color: '#ff6fb5', px: [
+    '.....##..',
+    '....#w#..',
+    '...#w#...',
+    '..#w#....',
+    '.#w#.....',
+    '#d#......',
+    '##.......'] },
+  og: { label: 'OG', color: '#ffd34d', px: [
+    '..#####..',
+    '.#w###d#.',
+    '.#######.',
+    '.#######.',
+    '..#####..',
+    '...#.#...',
+    '...#.#...'] },
+  booster: { label: 'Booster', color: '#ff73fa', px: [
+    '....#....',
+    '...###...',
+    '..#####..',
+    '....#....',
+    '..#.#.#..',
+    '..#.#.#..',
+    '.#..#..#.'] },
+  verified: { label: 'Verified', color: '#4aa3ff', px: [
+    '..#####..',
+    '.#####w#.',
+    '#####w###',
+    '##w#w####',
+    '###w#####',
+    '.#######.',
+    '..#####..'] },
+  winner: { label: 'Winner', color: '#f5c542', px: [
+    '#.#####.#',
+    '#.#####.#',
+    '.#######.',
+    '..#####..',
+    '...###...',
+    '....#....',
+    '...###...'] },
+  helper: { label: 'Helper', color: '#52d6a0', px: [
+    '.##...##.',
+    '#w#######',
+    '#########',
+    '.#######.',
+    '..#####..',
+    '...###...',
+    '....#....'] },
+  holiday: { label: 'Holiday', color: '#e5484d', px: [
+    '..#...#..',
+    '...#.#...',
+    '#########',
+    '####w####',
+    '#########',
+    '####w####',
+    '#########'] },
+  halloween: { label: 'Halloween', color: '#ff8a1f', px: [
+    '....#....',
+    '.#######.',
+    '#########',
+    '#d#####d#',
+    '#########',
+    '#d#d#d#d#',
+    '.#######.'] },
 };
+const BADGE_DESC = {
+  owner: 'The site owner.', dev: 'Helps build the site.', staff: 'Part of the team.', mod: 'Keeps the community friendly.',
+  partner: 'An official partner.', supporter: 'Supports the project.', vip: 'A very important person.', bughunter: 'Found and reported a bug.',
+  creator: 'Had their work approved in the showcase.', og: 'One of the first people here.', booster: 'Boosts the server.',
+  verified: 'A verified, real account.', winner: 'Won a contest.', helper: 'Helps other people out.',
+  holiday: 'Took part in a holiday event.', halloween: 'Took part in a Halloween event.'
+};
+const badgeTip = id => (BADGE_DEFS[id] ? BADGE_DEFS[id].label + ': ' + (BADGE_DESC[id] || '') : '');
 const SVGNS = 'http://www.w3.org/2000/svg';
 function badgeIcon(id, h) {
   const d = BADGE_DEFS[id]; if (!d) return null;
@@ -93,7 +165,7 @@ function badgeRow(list) {
   const row = document.createElement('span'); row.className = 'badges';
   for (const id of list || []) {
     const ic = badgeIcon(id); if (!ic) continue;
-    const chip = document.createElement('span'); chip.className = 'bdg'; chip.title = BADGE_DEFS[id].label; chip.setAttribute('role', 'img'); chip.setAttribute('aria-label', BADGE_DEFS[id].label);
+    const chip = document.createElement('span'); chip.className = 'bdg'; chip.title = badgeTip(id); chip.setAttribute('role', 'img'); chip.setAttribute('aria-label', badgeTip(id));
     chip.style.setProperty('--bc', BADGE_DEFS[id].color); chip.append(ic); row.append(chip);
   }
   return row;

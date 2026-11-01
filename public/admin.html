@@ -74,6 +74,10 @@
     <div id="agrid" class="agrid"></div>
   </section>
 
+  <section class="panel"><h3>Popular decorations</h3>
+    <div id="pop"></div>
+  </section>
+
   <section class="panel"><h3>Showcase submissions <span id="sc-n" style="color:var(--mute);font-weight:400"></span></h3>
     <div id="sc-list" class="users"></div>
   </section>
@@ -85,6 +89,8 @@
 
   <section class="panel"><h3>Accounts <span id="u-n" style="color:var(--mute);font-weight:400"></span></h3>
     <div id="u-info" style="color:var(--mute);margin-bottom:10px"></div>
+    <div class="row" style="margin-bottom:10px;gap:8px;flex-wrap:wrap"><input id="u-q" type="search" placeholder="Search accounts…" style="flex:1;min-width:160px"><select id="u-sort" aria-label="Sort accounts"><option value="recent">Recent login</option><option value="newest">Newest first</option><option value="oldest">Oldest first (OGs)</option><option value="name">Name A–Z</option><option value="admins">Admins first</option></select></div>
+    <div id="u-og" class="row" hidden style="margin-bottom:10px;gap:8px;align-items:center"></div>
     <div id="users" class="users"></div>
   </section>
 

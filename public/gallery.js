@@ -1,11 +1,27 @@
 const $ = s => document.querySelector(s);
-const state = { items: [], set: 'All', q: '', open: new Set() };
-try { state.set = localStorage.getItem('set') || 'All'; } catch { /* storage blocked */ }
+const state = { items: [], set: 'All', q: '', sort: 'default', open: new Set() };
+try { state.set = localStorage.getItem('set') || 'All'; state.sort = localStorage.getItem('sort') || 'default'; } catch { /* storage blocked */ }
 const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
 
 const badgeSafe = l => { try { return badgeRow(l); } catch { return document.createElement('span'); } }; // badges.js is optional
 const LOGIN = 'Login with Yapin\u2019';
 let ME = null;
+const JSON_POST = { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' } };
+function likeBtn(i) {
+  const b = el('button', 'like' + (i.liked ? ' on' : ''), '\u2665 ' + (i.likes || 0)); b.type = 'button';
+  b.title = ME && ME.user ? (i.liked ? 'Remove your like' : 'Like this') : 'Log in with Yapin\u2019 to like';
+  b.onclick = async e => {
+    e.stopPropagation();
+    if (!ME || !ME.user) { if (ME && ME.login) location.href = '/signin'; return; }
+    try {
+      const r = await fetch('/api/like', { ...JSON_POST, body: JSON.stringify({ id: i.id }) }); if (!r.ok) return;
+      const d = await r.json(); i.likes = d.likes; i.liked = d.liked;
+      b.className = 'like' + (i.liked ? ' on' : ''); b.textContent = '\u2665 ' + i.likes;
+      b.title = i.liked ? 'Remove your like' : 'Like this';
+    } catch { /* offline: ignore */ }
+  };
+  return b;
+}
 function setPreviewPhoto(url) {
   document.documentElement.style.setProperty('--photo-bg', `url("${url}") center/cover no-repeat`);
 }
@@ -27,7 +43,7 @@ async function loadAccount() {
 }
 function showNote() {
   const r = new URLSearchParams(location.search).get('login'); if (!r) return;
-  const msg = { ok: ['ok', 'You are logged in. Your profile picture now shows in the previews.'], cancelled: ['', 'Login cancelled.'], failed: ['bad', 'Login did not work. Please try again.'] }[r];
+  const msg = { ok: ['ok', 'You are logged in. Your profile picture now shows in the previews.'], cancelled: ['', 'Login cancelled.'], failed: ['bad', 'Login did not work. Please try again.'], banned: ['bad', 'This account is not allowed to log in.'] }[r];
   if (msg) { const n = $('#note'); n.textContent = msg[1]; n.className = 'note ' + msg[0]; n.hidden = false; setTimeout(() => { n.hidden = true; }, 6000); }
   history.replaceState(null, '', location.pathname);
 }
@@ -59,6 +75,7 @@ function render() {
   }
   const q = state.q.toLowerCase();
   const shown = state.items.filter(i => (state.set === 'All' || i.set === state.set) && (!q || (i.title + ' ' + i.set).toLowerCase().includes(q)));
+  if (state.sort === 'loved') shown.sort((a, b) => (b.likes || 0) - (a.likes || 0));
   const grid = $('#grid'); grid.replaceChildren();
   if (!shown.length) grid.append(el('div', 'empty', 'Nothing here yet.'));
   const groups = new Map();
@@ -71,7 +88,7 @@ function render() {
       const f = el('figure', 'card');
       const st = el('div', 'stage ld'); st.append(el('div', 'av'));
       const img = el('img'); img.src = i.src; img.alt = i.title; img.loading = 'lazy'; img.onload = img.onerror = () => st.classList.remove('ld'); st.append(img);
-      f.append(st, el('figcaption', '', i.title));
+      f.append(st, el('figcaption', '', i.title), likeBtn(i));
       f.onclick = () => openModal(i);
       g.append(f);
     }
@@ -81,6 +98,7 @@ function render() {
   $('#count').textContent = shown.length + ' of ' + state.items.length + ' shown';
 }
 function openModal(i) {
+  if (i.id) fetch('/api/view', { ...JSON_POST, body: JSON.stringify({ id: i.id }) }).catch(() => {}); // popularity count
   $('#mimg').src = i.src; $('#mimg').alt = i.title;
   $('#mtitle').textContent = i.title; $('#mset').textContent = i.set;
   $('#modal').hidden = false;
@@ -90,6 +108,8 @@ $('#close').onclick = closeModal;
 $('#modal').onclick = e => { if (e.target.id === 'modal') closeModal(); };
 addEventListener('keydown', e => { if (e.key === 'Escape') closeModal(); });
 $('#q').oninput = e => { state.q = e.target.value; render(); };
+$('#sort').value = state.sort; if ($('#sort').value !== state.sort) state.sort = 'default';
+$('#sort').onchange = e => { state.sort = e.target.value; try { localStorage.setItem('sort', state.sort); } catch { /* ignore */ } render(); };
 $('#av').onchange = e => document.body.classList.toggle('showav', e.target.checked);
 // grid size (S / M / L), remembered
 function setGrid(g) {
@@ -104,7 +124,7 @@ const topBtn = $('#totop');
 addEventListener('scroll', () => { topBtn.hidden = scrollY < 700; }, { passive: true });
 topBtn.onclick = () => scrollTo({ top: 0, behavior: 'smooth' });
 showNote();
-load().then(loadAccount);
+load().then(loadAccount).then(() => { if (state.items.length) render(); });
 
 // ---------- showcase ----------
 function tab(which) {
@@ -133,13 +153,14 @@ async function loadShowcase() {
     const f = el('figure', 'card'); const st = el('div', 'stage'); st.append(el('div', 'av'));
     const img = el('img'); img.src = i.src; img.alt = i.title; img.loading = 'lazy'; st.append(img);
     f.append(st, el('figcaption', '', i.title), byLine(i.by));
+    if (i.status === 'approved') f.append(likeBtn(i));
     if (i.mine) {
       if (i.status !== 'approved') f.append(el('div', 'pend', 'Waiting for approval'));
       const del = el('button', 'btn danger sm x2', 'Delete');
       del.onclick = async e => { e.stopPropagation(); if (!confirm('Delete "' + i.title + '"?')) return; await fetch('/api/showcase/' + i.id, { method: 'DELETE', credentials: 'same-origin' }); loadShowcase(); };
       f.append(del);
     }
-    f.onclick = () => openModal({ src: i.src, title: i.title, set: 'by ' + i.by.name });
+    f.onclick = () => openModal({ id: i.status === 'approved' ? i.id : null, src: i.src, title: i.title, set: 'by ' + i.by.name });
     g.append(f);
   }
   grid.append(g);
