@@ -187,6 +187,7 @@ async function loadUsers() {
   $('#u-n').textContent = '(' + d.users.length + ')';
   $('#u-info').textContent = d.login ? 'Login with Yapin\u2019 is on. Everyone who logged in appears here.' : 'Login with Yapin\u2019 is off. Set YAPPER_CLIENT_ID and YAPPER_CLIENT_SECRET on the server (see the README).';
   const info = $('#u-info');
+  $('#keep-note').textContent = 'Accounts are saved on the server every time something changes, with the version before kept as a spare. ' + (d.cloud ? 'They are also copied to your GitHub backup, so a wiped server gets them back on its own.' : 'GitHub backup is off, so a wiped server would lose them. Download a copy now and then, or switch on the GitHub backup (see the README).') + ' People stay logged in for a year.';
   info.append(el('br'), 'Redirect URL to register in Yapin\u2019 (must match exactly): ', el('b', '', d.redirectUrl));
   info.append(el('br'), 'Client ID: ' + (d.hasId ? 'set' : 'MISSING') + ' \u00b7 Client secret: ' + (d.hasSecret ? 'set' : 'MISSING') + ' \u00b7 Yapin\u2019 address: ' + d.yapin);
   if (d.lastError) info.append(el('br'), el('b', '', 'Last login problem' + (d.lastErrorAt ? ' (' + new Date(d.lastErrorAt).toLocaleString() + ')' : '') + ': '), d.lastError);
@@ -266,4 +267,16 @@ $('#bg-dim').oninput = e => {
   const v = +e.target.value; $('#bg-dimv').textContent = v + '%';
   const m = /url\("[^"]*"\)/.exec($('#bgprev').style.backgroundImage); if (m) $('#bgprev').style.backgroundImage = `linear-gradient(rgba(19,18,26,${v / 100}),rgba(19,18,26,${v / 100})),${m[0]}`;
   clearTimeout(bgTimer); bgTimer = setTimeout(() => api('PATCH', '/api/background', { dim: v }).catch(x => say('#bg-msg', x.message, 'err')), 400);
+};
+
+// ---------- keep accounts ----------
+$('#acc-go').onclick = async () => {
+  const file = $('#acc-file').files[0];
+  if (!file) return say('#acc-msg', 'Choose an accounts file first.', 'err');
+  try {
+    const users = JSON.parse(await file.text());
+    const d = await api('POST', '/api/admin/accounts/import', users);
+    say('#acc-msg', d.added ? `Restored ${d.added} account${d.added === 1 ? '' : 's'}. ${d.total} in total.` : 'Nothing to add. Everyone in that file is already here.', 'ok');
+    $('#acc-file').value = ''; loadUsers();
+  } catch (e) { say('#acc-msg', e instanceof SyntaxError ? 'That file is not valid JSON.' : e.message, 'err'); }
 };

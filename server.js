@@ -82,7 +82,7 @@ let dbTimer;
 function pushDb() {
   if (!ghOn || !cloudSafe) return;
   clearTimeout(dbTimer);
-  dbTimer = setTimeout(() => ghTask(() => ghPut('items.json', Buffer.from(JSON.stringify(db, null, 1)))), 2500);
+  dbTimer = setTimeout(() => { ghTask(() => ghPut('items.json', Buffer.from(JSON.stringify(db, null, 1)))); ghTask(() => ghPut('accounts.json', Buffer.from(accountsBlob()))); }, 2500);
 }
 async function restoreFromCloud(force = false) {
   if (!ghOn) return;
@@ -90,10 +90,11 @@ async function restoreFromCloud(force = false) {
   try {
     await ensureBranch();
     const r = await gh('GET', `/contents/items.json?ref=${encodeURIComponent(GH_BRANCH)}`, null, true);
-    if (r.status === 404) { cloudSafe = true; console.log('Cloud backup: nothing saved yet.'); return; }
+    if (r.status === 404) { await restoreAccountsFromCloud(); cloudSafe = true; console.log('Cloud backup: nothing saved yet.'); return; }
     if (!r.ok) throw new Error('GitHub answered ' + r.status);
     const remote = JSON.parse(await r.text());
     db = { ...db, ...remote };
+    await restoreAccountsFromCloud();
     for (const i of [...db.items, ...db.photos, ...db.showcase, ...(db.background ? [db.background] : [])].filter(x => !x.seed)) {
       const fp = path.join(UPLOAD_DIR, path.basename(i.file));
       if (fs.existsSync(fp)) continue;
@@ -114,11 +115,58 @@ function syncEverything() {
   }
 }
 
+// ---------- permanent accounts ----------
+// Accounts are kept in three places: items.json, a separate accounts.json (+ accounts.prev.json, the version before),
+// and the GitHub backup. On start-up all copies are merged, so losing or corrupting one never loses an account.
+const ACCOUNTS_FILE = path.join(DATA_DIR, 'accounts.json');
+const ACCOUNTS_PREV = path.join(DATA_DIR, 'accounts.prev.json');
+function accountsBlob() { return JSON.stringify({ version: 1, saved: Date.now(), users: db.users, removedUsers: db.removedUsers || [] }, null, 1); }
+function safeUser(u) {
+  if (!u || !/^[\w-]{1,64}$/.test(String(u.id ?? ''))) return null;
+  const str = (v, n) => (v == null ? null : String(v).replace(/[\u0000-\u001f<>]/g, '').trim().slice(0, n));
+  const num = v => (Number.isFinite(Number(v)) ? Number(v) : undefined);
+  const av = typeof u.avatar_url === 'string' && /^https:\/\/[^\s"'()<>\\]{1,480}$/.test(u.avatar_url) ? u.avatar_url : null;
+  return { id: String(u.id), username: str(u.username, 40), display_name: str(u.display_name, 60), avatar_url: av,
+    badges: Array.isArray(u.badges) ? [...new Set(u.badges)].filter(b => ['owner', 'dev', 'staff'].includes(b)) : [],
+    admin: !!u.admin, firstSeen: num(u.firstSeen), lastLogin: num(u.lastLogin) };
+}
+// Adds accounts we don't have yet. Never edits or removes an existing one. Returns how many were added.
+function mergeAccounts(list, removed = []) {
+  if (!Array.isArray(list)) return 0;
+  const have = new Set(db.users.map(u => u.id)), gone = new Set([...(db.removedUsers || []), ...removed.filter(x => typeof x === 'string')]);
+  let n = 0;
+  for (const raw of list) { const u = safeUser(raw); if (!u || have.has(u.id) || gone.has(u.id)) continue; db.users.push(u); have.add(u.id); n++; }
+  return n;
+}
+function loadAccountFiles() {
+  let n = 0;
+  for (const f of [ACCOUNTS_FILE, ACCOUNTS_PREV]) {
+    try { const d = JSON.parse(fs.readFileSync(f, 'utf8')); n += mergeAccounts(d.users); } catch { /* missing or unreadable */ }
+  }
+  if (n) console.log(`Recovered ${n} account(s) from the accounts backup file.`);
+  return n;
+}
+async function saveAccountFiles() {
+  try { await fsp.copyFile(ACCOUNTS_FILE, ACCOUNTS_PREV); } catch { /* first save */ }
+  const tmp = ACCOUNTS_FILE + '.tmp';
+  await fsp.writeFile(tmp, accountsBlob());
+  await fsp.rename(tmp, ACCOUNTS_FILE);
+}
+async function restoreAccountsFromCloud() {
+  try {
+    const r = await gh('GET', `/contents/accounts.json?ref=${encodeURIComponent(GH_BRANCH)}`, null, true);
+    if (r.ok) { const n = mergeAccounts(JSON.parse(await r.text()).users); if (n) console.log(`Recovered ${n} account(s) from the GitHub backup.`); }
+  } catch { /* the main restore reports GitHub problems */ }
+}
+
 // ---------- data ----------
-let db = { settings: { title: 'Pixel Decorations', subtitle: 'Avatar decorations, made in pixels.' }, items: [], removedSeed: [], photos: [], removedSeedPhotos: [], activePhoto: null, users: [], showcase: [], background: null };
+let db = { settings: { title: 'Pixel Decorations', subtitle: 'Avatar decorations, made in pixels.' }, items: [], removedSeed: [], photos: [], removedSeedPhotos: [], activePhoto: null, users: [], showcase: [], background: null, removedUsers: [] };
 try { db = { ...db, ...JSON.parse(fs.readFileSync(DB_FILE, 'utf8')) }; } catch { /* first run */ }
 await restoreFromCloud();
 db.settings = { title: 'Pixel Decorations', subtitle: '', ...db.settings };
+if (!Array.isArray(db.users)) db.users = [];
+if (!Array.isArray(db.removedUsers)) db.removedUsers = [];
+loadAccountFiles();
 
 function syncSeed() {
   let manifest = [];
@@ -153,6 +201,7 @@ function saveDb() {
     const tmp = DB_FILE + '.tmp';
     await fsp.writeFile(tmp, JSON.stringify(db));
     await fsp.rename(tmp, DB_FILE);
+    await saveAccountFiles();
     pushDb();
   }).catch(e => console.error('save failed', e));
   return saving;
@@ -206,7 +255,7 @@ function sameOrigin(req) {
 const isHttps = req => req.headers['x-forwarded-proto'] === 'https';
 const baseUrl = req => (process.env.PUBLIC_URL || process.env.RENDER_EXTERNAL_URL || `${isHttps(req) ? 'https' : 'http'}://${req.headers.host}`).replace(/\/$/, '');
 const secure = req => (isHttps(req) ? '; Secure' : '');
-const makeUserToken = id => { const p = `${id}.${Date.now() + 30 * 864e5}`; return p + '.' + sign('u:' + p); };
+const makeUserToken = id => { const p = `${id}.${Date.now() + 365 * 864e5}`; return p + '.' + sign('u:' + p); };
 function userFromReq(req) {
   const t = cookies(req).usid; if (!t) return null;
   const i = t.lastIndexOf('.'); if (i < 1) return null;
@@ -342,7 +391,10 @@ async function removeShowcase(id) {
 
 async function api(req, res, p, m) {
   if (p === '/api/items' && m === 'GET') return json(res, 200, { settings: db.settings, photo: activePhotoSrc(), background: bgView(), items: db.items.filter(i => !i.hidden).map(pub) });
-  if (p === '/api/me' && m === 'GET') return json(res, 200, { admin: isAdmin(req), owner: isOwner(req), configured: !!PASSWORD, login: loginOn, user: pubUser(userFromReq(req)) });
+  if (p === '/api/me' && m === 'GET') {
+    const au = userFromReq(req);
+    return json(res, 200, { admin: isAdmin(req), owner: isOwner(req), configured: !!PASSWORD, login: loginOn, user: pubUser(userFromReq(req)) }, au ? { 'Set-Cookie': `usid=${makeUserToken(au.id)}; HttpOnly; SameSite=Lax; Path=/; Max-Age=31536000${secure(req)}` } : {});
+  }
   if (p === '/api/user/logout' && m === 'POST') {
     if (!sameOrigin(req)) return json(res, 403, { error: 'Bad origin' });
     return json(res, 200, { ok: true }, { 'Set-Cookie': `usid=; HttpOnly; SameSite=Lax; Path=/; Max-Age=0${secure(req)}` });
@@ -463,6 +515,19 @@ async function api(req, res, p, m) {
     if (old) { try { await fsp.unlink(path.join(UPLOAD_DIR, path.basename(old.file))); } catch { /* gone */ } ghTask(() => ghDel('uploads/' + path.basename(old.file))); }
     db.background = null; await saveDb(); return json(res, 200, { ok: true });
   }
+  if (p === '/api/admin/accounts.json' && m === 'GET') {
+    if (!isOwner(req)) return json(res, 403, { error: 'Only the main admin (password login) can download accounts.' });
+    return send(res, 200, accountsBlob(), { 'Content-Type': 'application/json; charset=utf-8', 'Content-Disposition': 'attachment; filename="accounts.json"', 'Cache-Control': 'no-store' });
+  }
+  if (p === '/api/admin/accounts/import' && m === 'POST') {
+    if (!isOwner(req)) return json(res, 403, { error: 'Only the main admin (password login) can restore accounts.' });
+    const b = await readJson(req);
+    if (!Array.isArray(b.users)) return json(res, 400, { error: 'That file does not look like an accounts download.' });
+    const ids = new Set(b.users.map(u => String(u?.id ?? '')));
+    db.removedUsers = (db.removedUsers || []).filter(id => !ids.has(id)); // restoring someone brings them back on purpose
+    const added = mergeAccounts(b.users);
+    await saveDb(); return json(res, 200, { added, total: db.users.length });
+  }
   if (p === '/api/admin/photos' && m === 'GET') return json(res, 200, { photos: db.photos.map(photoView) });
   if (p === '/api/photos' && m === 'POST') {
     const bm = /boundary=(?:"([^"]+)"|([^;]+))/i.exec(req.headers['content-type'] || '');
@@ -485,7 +550,7 @@ async function api(req, res, p, m) {
     return json(res, 200, { added: added.map(photoView), rejected });
   }
   if (p === '/api/admin/users' && m === 'GET')
-    return json(res, 200, { login: loginOn, redirectUrl: baseUrl(req) + CB_PATH, yapin: YAPIN, hasId: !!Y_ID, hasSecret: !!Y_SECRET, lastError: loginDiag.error, lastErrorAt: loginDiag.at, owner: isOwner(req), badgeList: BADGES, users: [...db.users].sort((a, b) => (b.lastLogin || 0) - (a.lastLogin || 0)).map(u => ({ ...pubUser(u), admin: !!u.admin, firstSeen: u.firstSeen, lastLogin: u.lastLogin })) });
+    return json(res, 200, { login: loginOn, redirectUrl: baseUrl(req) + CB_PATH, yapin: YAPIN, hasId: !!Y_ID, hasSecret: !!Y_SECRET, lastError: loginDiag.error, lastErrorAt: loginDiag.at, owner: isOwner(req), cloud: ghOn, badgeList: BADGES, users: [...db.users].sort((a, b) => (b.lastLogin || 0) - (a.lastLogin || 0)).map(u => ({ ...pubUser(u), admin: !!u.admin, firstSeen: u.firstSeen, lastLogin: u.lastLogin })) });
   if (p === '/api/admin/showcase' && m === 'GET') return json(res, 200, { auto: !!db.settings.showcaseAuto, items: db.showcase.map(x => scView(x, null)) });
   let am;
   if ((am = /^\/api\/admin\/users\/([\w-]{1,64})\/badges$/.exec(p)) && m === 'PUT') {
@@ -512,7 +577,7 @@ async function api(req, res, p, m) {
     return json(res, 200, { uptime: Math.round(process.uptime()), node: process.version, rssMB: Math.round(process.memoryUsage().rss / 1048576), keep });
   let um;
   if ((um = /^\/api\/users\/([\w-]+)$/.exec(p)) && m === 'DELETE') {
-    db.users = db.users.filter(u => u.id !== um[1]); await saveDb(); return json(res, 200, { ok: true });
+    db.users = db.users.filter(u => u.id !== um[1]); (db.removedUsers ||= []).includes(um[1]) || db.removedUsers.push(um[1]); await saveDb(); return json(res, 200, { ok: true });
   }
   let pm;
   if ((pm = /^\/api\/photos\/([\w-]+)$/.exec(p))) {
@@ -609,7 +674,7 @@ async function finishLogin(req, res, url) {
     if (!u) { u = { id, firstSeen: Date.now() }; db.users.push(u); }
     Object.assign(u, { username: clean(me.username, 40), display_name: me.display_name ? clean(me.display_name, 60) : null, avatar_url: okUrl(me.avatar_url), lastLogin: Date.now() });
     await saveDb();
-    res.writeHead(302, { Location: cookies(req).oauth_next === 'admin' ? '/admin' : '/?login=ok', 'Set-Cookie': [`usid=${makeUserToken(id)}; HttpOnly; SameSite=Lax; Path=/; Max-Age=2592000${secure(req)}`, stateCookie('', req, 0)], 'Cache-Control': 'no-store', ...SEC });
+    res.writeHead(302, { Location: cookies(req).oauth_next === 'admin' ? '/admin' : '/?login=ok', 'Set-Cookie': [`usid=${makeUserToken(id)}; HttpOnly; SameSite=Lax; Path=/; Max-Age=31536000${secure(req)}`, stateCookie('', req, 0)], 'Cache-Control': 'no-store', ...SEC });
     res.end();
   } catch (e) { loginFail(e.name === 'TimeoutError' ? `Could not reach ${YAPIN} (timed out). Check YAPIN_BASE.` : String(e.message || e)); back('failed'); }
 }

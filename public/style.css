@@ -165,17 +165,23 @@ h2.set span{color:var(--mute);font-weight:400;margin-left:8px;font-variant-numer
 .cview img{position:absolute;left:0;top:0;transform-origin:0 0;user-select:none;-webkit-user-drag:none;max-width:none}
 .zoom{width:100%;margin-top:14px;accent-color:var(--accent)}
 
-.users{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:10px}
-.u{display:flex;gap:10px;align-items:center;background:var(--bg);border:1px solid var(--line);border-radius:var(--r-md);padding:8px 10px}
+.users{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:10px}
+.u{display:flex;flex-wrap:wrap;gap:8px 10px;align-items:center;background:var(--bg);border:1px solid var(--line);border-radius:var(--r-md);padding:8px 10px}
 .u img,.u .ini{width:40px;height:40px;border-radius:50%;object-fit:cover;flex:none;background:var(--panel);display:grid;place-items:center;font-weight:700}
-.u .t{min-width:0;flex:1;font-size:13px}
-.u .t b,.u .t span{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.u .t span{color:var(--mute);font-size:12px}
+.u .t{min-width:0;flex:1 1 120px;font-size:13px}
+.u .btn{flex:none}
+.u .t>b,.u .t>span:not(.badges){display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.u .t>span:not(.badges){color:var(--mute);font-size:12px}
+.u .t .badges{display:block;margin:2px 0}.u .t .badge{margin:0 4px 0 0}
 .status{font-size:12px;border-radius:999px;padding:2px 8px;border:1px solid var(--line);color:var(--mute)}
 .status.ok{color:var(--ok);border-color:#24503a}.status.wait{color:var(--warn);border-color:#5a4620}
 .statgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:10px}
 .stat{background:var(--bg);border:1px solid var(--line);border-radius:var(--r-md);padding:10px 12px}
 .stat small{display:block;color:var(--mute);font-size:12px}.stat b{font-size:16px}
+
+/* accounts keep */
+.keep{margin-top:18px;padding-top:14px;border-top:1px solid var(--line)}
+.keep h4{margin:0 0 6px;font-size:14px}
 
 /* background panel */
 .bgrow{display:flex;gap:18px;flex-wrap:wrap;align-items:flex-start}

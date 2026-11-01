@@ -84,6 +84,12 @@
   <section class="panel"><h3>Accounts <span id="u-n" class="dim"></span></h3>
     <div id="u-info" class="note-text"></div>
     <div id="users" class="users"></div>
+    <div class="keep">
+      <h4>Keep accounts permanently</h4>
+      <p id="keep-note" class="note-text"></p>
+      <div class="fields"><a class="btn ghost sm" href="/api/admin/accounts.json" download="accounts.json">Download accounts</a><input id="acc-file" type="file" accept="application/json,.json" aria-label="Accounts file"><button id="acc-go" class="btn sm" type="button">Restore from file</button></div>
+      <div id="acc-msg" class="msg"></div>
+    </div>
   </section>
 
   <section class="panel"><h3>Cloud backup</h3>
