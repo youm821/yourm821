@@ -13,7 +13,6 @@ async function api(method, url, body) {
 }
 const say = (id, text, kind) => { const m = $(id); m.textContent = text || ''; m.className = 'msg' + (kind ? ' ' + kind : ''); };
 
-function badgeRow(list) { const r = el('span', 'badges'); for (const b of list || []) r.append(el('span', 'badge ' + b, b.charAt(0).toUpperCase() + b.slice(1))); return r; }
 // ---------- partners ----------
 async function form(method, url, fd) {
   const r = await fetch(url, { method, body: fd, credentials: 'same-origin' });
@@ -62,12 +61,36 @@ $('#pt-add').onclick = async () => {
   catch (e) { say('#pt-msg', e.message, 'err'); }
 };
 function showLogin() { $('#app').hidden = true; $('#login').hidden = false; $('#pw').focus(); }
+// ---- backup status strip + tabs ----
+async function loadStrip() {
+  const s = $('#strip');
+  try {
+    const d = await api('GET', '/api/sync');
+    if (!d.on) { s.className = 'strip bad'; s.textContent = 'Cloud backup is OFF. Uploads can be lost if the server restarts. Set GITHUB_TOKEN and GITHUB_REPO in Render.'; }
+    else if (d.error) { s.className = 'strip bad'; s.textContent = 'Cloud backup problem: ' + d.error; }
+    else { s.className = 'strip ok'; s.textContent = 'Cloud backup is on' + (d.repo ? ' (' + d.repo + ')' : '') + (d.last ? ' \u00b7 last saved ' + new Date(d.last).toLocaleString() : ''); }
+  } catch { s.className = 'strip'; s.textContent = 'Could not check the cloud backup.'; }
+}
+const TAB_NAMES = ['Site & partners', 'Gallery', 'Accounts', 'Backup'];
+function tabOf(title) { const t = title.toLowerCase(); if (/^site|^partners/.test(t)) return 'Site & partners'; if (/account/.test(t)) return 'Accounts'; if (/awake|cloud|download/.test(t)) return 'Backup'; return 'Gallery'; }
+function setupTabs() {
+  const nav = $('#atabs'); const panels = [...document.querySelectorAll('#app > section.panel')];
+  let cur = 'Site & partners'; try { cur = localStorage.getItem('atab') || cur; } catch { /* ignore */ }
+  const show = name => {
+    cur = name; try { localStorage.setItem('atab', name); } catch { /* ignore */ }
+    for (const p of panels) p.hidden = tabOf((p.querySelector('h3') || {}).textContent || '') !== name;
+    nav.querySelectorAll('button').forEach(b => b.classList.toggle('on', b.textContent === name));
+  };
+  nav.replaceChildren(); for (const n of TAB_NAMES) { const b = el('button', '', n); b.onclick = () => show(n); nav.append(b); }
+  show(TAB_NAMES.includes(cur) ? cur : TAB_NAMES[0]);
+}
 async function boot() {
   const me = await (await fetch('/api/me', { credentials: 'same-origin' })).json();
   $('#ylogin').hidden = !me.login;
   if (!me.admin) { showLogin(); if (!me.configured) say('#lmsg', 'ADMIN_PASSWORD is not set on the server yet.', 'err'); return; }
   $('#login').hidden = true; $('#app').hidden = false;
   await refresh();
+  setupTabs(); loadStrip(); setInterval(loadStrip, 20000);
   loadSync(); setInterval(loadSync, 15000); loadPhotos(); loadPartners(); loadUsers(); loadShowcase(); loadUptime(); setInterval(loadUptime, 20000);
 }
 async function loadSync() {
@@ -92,7 +115,7 @@ $('#logout').onclick = async () => { await api('POST', '/api/logout', {}).catch(
 async function refresh() {
   const d = await api('GET', '/api/admin/items');
   S.items = d.items;
-  $('#s-auto').checked = !!d.settings.showcaseAuto; $('#s-title').value = d.settings.title; $('#s-sub').value = d.settings.subtitle || ''; $('#s-support').value = d.settings.supportUrl || '';
+  bannerInit(d.settings); $('#s-auto').checked = !!d.settings.showcaseAuto; $('#s-title').value = d.settings.title; $('#s-sub').value = d.settings.subtitle || ''; $('#s-support').value = d.settings.supportUrl || '';
   const sets = [...new Set(S.items.map(i => i.set))];
   $('#sets').replaceChildren(...sets.map(s => { const o = el('option'); o.value = s; return o; }));
   const cur = $('#f-set').value;
@@ -146,8 +169,21 @@ async function bulk(action, extra = {}) {
 $('#b-move').onclick = () => bulk('move', { set: $('#b-set').value });
 $('#b-hide').onclick = () => bulk('hide'); $('#b-show').onclick = () => bulk('show'); $('#b-del').onclick = () => bulk('delete');
 
+let bannerFile = '';
+function bannerPreview() { applyBanner($('#s-bprev'), { bannerStyle: $('#s-bstyle').value, bannerText: $('#s-btext').value, bannerFile }); }
+function bannerInit(s) {
+  const sel = $('#s-bstyle'); if (!sel.options.length) for (const [k, l] of [['none', 'No banner'], ...Object.entries(BANNER_STYLES), ['custom', 'My own image']]) { const o = el('option', '', l); o.value = k; sel.append(o); }
+  sel.value = s.bannerStyle || 'none'; $('#s-btext').value = s.bannerText || ''; bannerFile = s.bannerFile || ''; bannerPreview();
+  sel.onchange = bannerPreview; $('#s-btext').oninput = bannerPreview;
+}
+$('#s-bup').onclick = async () => {
+  const f = $('#s-bfile').files[0]; if (!f) { say('#s-msg', 'Choose a banner image first.', 'err'); return; }
+  const fd = new FormData(); fd.append('image', f);
+  try { const d = await form('POST', '/api/banner/image', fd); bannerFile = d.bannerFile; $('#s-bstyle').value = 'custom'; $('#s-bfile').value = ''; bannerPreview(); say('#s-msg', 'Banner image uploaded.', 'ok'); } catch (e) { say('#s-msg', e.message, 'err'); }
+};
+$('#s-bdel').onclick = async () => { try { await api('DELETE', '/api/banner/image'); bannerFile = ''; if ($('#s-bstyle').value === 'custom') $('#s-bstyle').value = 'none'; bannerPreview(); say('#s-msg', 'Image removed.', 'ok'); } catch (e) { say('#s-msg', e.message, 'err'); } };
 $('#s-save').onclick = async () => {
-  try { await api('PUT', '/api/settings', { title: $('#s-title').value, subtitle: $('#s-sub').value, showcaseAuto: $('#s-auto').checked, supportUrl: $('#s-support').value }); say('#s-msg', 'Saved.', 'ok'); }
+  try { await api('PUT', '/api/settings', { title: $('#s-title').value, subtitle: $('#s-sub').value, showcaseAuto: $('#s-auto').checked, supportUrl: $('#s-support').value, bannerStyle: $('#s-bstyle').value, bannerText: $('#s-btext').value }); say('#s-msg', 'Saved.', 'ok'); }
   catch (e) { say('#s-msg', e.message, 'err'); }
 };
 
@@ -248,14 +284,19 @@ async function loadUsers() {
       ad.onclick = async () => { if (!confirm((u.admin ? 'Remove admin from ' : 'Give admin to ') + name + '?' + (u.admin ? '' : ' They will be able to change everything on the site except adding other admins.'))) return; await api('PUT', '/api/admin/users/' + encodeURIComponent(u.id) + '/admin', { admin: !u.admin }); loadUsers(); };
       c.append(ad);
     }
-    if (d.owner) for (const [key, label] of Object.entries(d.badgeList || {})) {
-      const has = (u.badges || []).includes(key);
-      const bb = el('button', 'btn ghost sm', (has ? 'Remove ' : 'Give ') + label + ' badge');
-      bb.onclick = async () => { const next = has ? u.badges.filter(x => x !== key) : [...(u.badges || []), key]; try { await api('PUT', '/api/admin/users/' + encodeURIComponent(u.id) + '/badges', { badges: next }); loadUsers(); } catch (e) { alert(e.message); } };
-      c.append(bb);
+    if (d.owner) {
+      const tg = el('div', 'bdgpick');
+      for (const [key, label] of Object.entries(d.badgeList || {})) {
+        const has = (u.badges || []).includes(key);
+        const bb = el('button', 'bdgbtn' + (has ? ' on' : '')); bb.title = (has ? 'Remove ' : 'Give ') + label + ' badge'; bb.style.setProperty('--bc', (BADGE_DEFS[key] || {}).color || '#888');
+        const ic = badgeIcon(key, 16); if (ic) bb.append(ic); else bb.textContent = label;
+        bb.onclick = async () => { const next = has ? u.badges.filter(x => x !== key) : [...(u.badges || []), key]; try { await api('PUT', '/api/admin/users/' + encodeURIComponent(u.id) + '/badges', { badges: next }); loadUsers(); } catch (e) { alert(e.message); } };
+        tg.append(bb);
+      }
+      c._pick = tg;
     }
     if (u.admin) t.append(el('span', '', ' \u00b7 admin'));
-    c.append(rm); box.append(c);
+    c.append(rm); if (c._pick) c.append(c._pick); box.append(c);
   }
 }
 

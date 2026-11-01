@@ -109,7 +109,8 @@ async function restoreFromCloud(force = false) {
 }
 const PARTNER_KINDS = { server: 'Server', creator: 'Creator', partner: 'Partner' };
 const ptImgs = p => [p.file, ...(p.works || []).map(w => w.file)].filter(Boolean);
-function allUploads() { return [...db.items, ...db.photos, ...db.showcase, ...(db.partners || []).flatMap(p => ptImgs(p).map(file => ({ file })))]; }
+const BANNER_STYLE_IDS = ['aurora', 'sunset', 'forest', 'neon', 'confetti', 'ocean', 'candy', 'city'];
+function allUploads() { return [...db.items, ...db.photos, ...db.showcase, ...(db.settings && db.settings.bannerFile ? [{ file: db.settings.bannerFile }] : []), ...(db.partners || []).flatMap(p => ptImgs(p).map(file => ({ file })))]; }
 function syncEverything() {
   pushDb();
   for (const i of allUploads().filter(x => !x.seed)) {
@@ -221,7 +222,7 @@ function userFromReq(req) {
   const id = p.slice(0, j);
   return db.users.find(u => u.id === id) || null;
 }
-const BADGES = { owner: 'Owner', dev: 'Dev', staff: 'Staff' }; // badges an admin can give to Yapin' accounts
+const BADGES = { owner: 'Owner', dev: 'Dev', staff: 'Staff', mod: 'Moderator', partner: 'Partner', supporter: 'Supporter', vip: 'VIP', bughunter: 'Bug Hunter' }; // badges an admin can give to Yapin' accounts
 const cleanBadges = l => (Array.isArray(l) ? [...new Set(l)].filter(b => Object.hasOwn(BADGES, b)) : []);
 const cleanUrl = v => { try { const u = new URL(String(v || '').trim()); return u.protocol === 'https:' ? u.href.slice(0, 300) : ''; } catch { return ''; } };
 const pubUser = u => (u ? { id: u.id, username: u.username, display_name: u.display_name, avatar_url: u.avatar_url, badges: cleanBadges(u.badges) } : null);
@@ -412,7 +413,7 @@ async function api(req, res, p, m) {
     const b = await readJson(req);
     const supportUrl = cleanUrl(b.supportUrl);
     if (String(b.supportUrl || '').trim() && !supportUrl) return json(res, 400, { error: 'The support link must be a full https:// address.' });
-    db.settings = { title: clean(b.title, 60) || 'Pixel Decorations', subtitle: clean(b.subtitle, 160), showcaseAuto: !!b.showcaseAuto, supportUrl };
+    db.settings = { title: clean(b.title, 60) || 'Pixel Decorations', subtitle: clean(b.subtitle, 160), showcaseAuto: !!b.showcaseAuto, supportUrl, bannerStyle: ['none', 'custom', ...BANNER_STYLE_IDS].includes(b.bannerStyle) ? b.bannerStyle : 'none', bannerText: clean(b.bannerText, 100), bannerFile: db.settings.bannerFile || '' };
     await saveDb(); return json(res, 200, db.settings);
   }
 
@@ -526,6 +527,19 @@ async function api(req, res, p, m) {
       db.partners.push(entry); await saveDb();
       return json(res, 200, ptView(entry));
     } catch (e) { for (const f of made) await dropImg(f); return json(res, 400, { error: e.message }); }
+  }
+  if (p === '/api/banner/image' && m === 'POST') {
+    try {
+      const { files } = await readForm(); const x = files.find(f => f.name === 'image'); if (!x) throw new Error('Choose an image first.');
+      const file = await saveImg(x); if (db.settings.bannerFile) await dropImg(db.settings.bannerFile);
+      db.settings.bannerFile = file; db.settings.bannerStyle = 'custom'; await saveDb();
+      return json(res, 200, { ok: true, bannerFile: file });
+    } catch (e) { return json(res, 400, { error: e.message }); }
+  }
+  if (p === '/api/banner/image' && m === 'DELETE') {
+    if (db.settings.bannerFile) await dropImg(db.settings.bannerFile);
+    db.settings.bannerFile = ''; if (db.settings.bannerStyle === 'custom') db.settings.bannerStyle = 'none'; await saveDb();
+    return json(res, 200, { ok: true });
   }
   let pt;
   if ((pt = /^\/api\/partners\/([\w-]+)(?:\/(images|move))?(?:\/([\w.-]+))?$/.exec(p))) {
@@ -673,6 +687,7 @@ async function handle(req, res) {
   if (m !== 'GET' && m !== 'HEAD') return send(res, 405, 'Method not allowed');
   if (p === '/') return serveStatic(req, res, PUBLIC_DIR, 'index.html', 'no-cache');
   if (p === '/admin') return serveStatic(req, res, PUBLIC_DIR, 'admin.html', 'no-cache');
+  if (p === '/about') return serveStatic(req, res, PUBLIC_DIR, 'about.html', 'no-cache');
   if (p === '/partners') return serveStatic(req, res, PUBLIC_DIR, 'partners.html', 'no-cache');
   if (p === '/signin') return serveStatic(req, res, PUBLIC_DIR, 'signin.html', 'no-cache');
   if (p.startsWith('/seed/')) return serveStatic(req, res, SEED_DIR, p.slice(6), 'public, max-age=86400');

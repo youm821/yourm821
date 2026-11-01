@@ -1,17 +1,12 @@
 const $ = s => document.querySelector(s);
-const state = { items: [], set: 'All', q: '' };
+const state = { items: [], set: 'All', q: '', open: new Set() };
+try { state.set = localStorage.getItem('set') || 'All'; } catch { /* storage blocked */ }
 const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
 
 const LOGIN = 'Login with Yapin\u2019';
 let ME = null;
 function setPreviewPhoto(url) {
   document.documentElement.style.setProperty('--photo-bg', `url("${url}") center/cover no-repeat`);
-}
-const BADGE_NAMES = { owner: 'Owner', dev: 'Dev', staff: 'Staff' };
-function badgeRow(list) {
-  const row = el('span', 'badges');
-  for (const b of list || []) if (BADGE_NAMES[b]) row.append(el('span', 'badge ' + b, BADGE_NAMES[b]));
-  return row;
 }
 async function loadAccount() {
   let me; try { me = await (await fetch('/api/me', { credentials: 'same-origin' })).json(); } catch { return; }
@@ -26,7 +21,7 @@ async function loadAccount() {
     out.onclick = async () => { await fetch('/api/user/logout', { method: 'POST', credentials: 'same-origin' }); location.reload(); };
     box.append(out);
   } else if (me.login) {
-    const a = el('a', 'btn', LOGIN); a.href = '/signin'; box.append(a);
+    const a = el('a', 'btn nowrap'); a.href = '/signin'; a.append(el('span', 'full', LOGIN), el('span', 'short', 'Log in')); box.append(a);
   }
 }
 function showNote() {
@@ -40,6 +35,7 @@ async function load() {
   document.title = d.settings.title;
   $('#title').textContent = d.settings.title;
   $('#subtitle').textContent = d.settings.subtitle || '';
+  applyBanner($('#banner'), d.settings); $('#hero').classList.toggle('hasbanner', !$('#banner').hidden);
   const sup = d.settings.supportUrl;
   for (const id of ['#support', '#support2']) { const a = $(id); if (sup && sup.startsWith('https://')) { a.href = sup; a.hidden = false; } else a.hidden = true; }
   if (d.photo) {
@@ -57,7 +53,7 @@ function render() {
   for (const name of ['All', ...counts.keys()]) {
     const b = el('button', 'chip' + (name === state.set ? ' on' : ''), name);
     b.append(el('b', '', name === 'All' ? state.items.length : counts.get(name)));
-    b.onclick = () => { state.set = name; render(); };
+    b.onclick = () => { state.set = name; try { localStorage.setItem('set', name); } catch { /* ignore */ } render(); };
     chips.append(b);
   }
   const q = state.q.toLowerCase();
@@ -68,16 +64,18 @@ function render() {
   for (const i of shown) { if (!groups.has(i.set)) groups.set(i.set, []); groups.get(i.set).push(i); }
   for (const [name, list] of groups) {
     if (state.set === 'All') { const h = el('h2', 'set', name); h.append(el('span', '', list.length)); grid.append(h); }
+    const foldable = state.set === 'All' && !q && list.length > 8, folded = foldable && !state.open.has(name);
     const g = el('div', 'grid');
-    for (const i of list) {
+    for (const i of folded ? list.slice(0, 8) : list) {
       const f = el('figure', 'card');
-      const st = el('div', 'stage'); st.append(el('div', 'av'));
-      const img = el('img'); img.src = i.src; img.alt = i.title; img.loading = 'lazy'; st.append(img);
+      const st = el('div', 'stage ld'); st.append(el('div', 'av'));
+      const img = el('img'); img.src = i.src; img.alt = i.title; img.loading = 'lazy'; img.onload = img.onerror = () => st.classList.remove('ld'); st.append(img);
       f.append(st, el('figcaption', '', i.title));
       f.onclick = () => openModal(i);
       g.append(f);
     }
     grid.append(g);
+    if (foldable) { const more = el('button', 'btn ghost sm more', folded ? 'Show all ' + list.length : 'Show less'); more.onclick = () => { if (folded) state.open.add(name); else state.open.delete(name); render(); }; grid.append(more); }
   }
   $('#count').textContent = shown.length + ' of ' + state.items.length + ' shown';
 }
@@ -92,6 +90,18 @@ $('#modal').onclick = e => { if (e.target.id === 'modal') closeModal(); };
 addEventListener('keydown', e => { if (e.key === 'Escape') closeModal(); });
 $('#q').oninput = e => { state.q = e.target.value; render(); };
 $('#av').onchange = e => document.body.classList.toggle('showav', e.target.checked);
+// grid size (S / M / L), remembered
+function setGrid(g) {
+  document.body.classList.remove('g-s', 'g-l'); if (g === 's' || g === 'l') document.body.classList.add('g-' + g);
+  document.querySelectorAll('#gsz button').forEach(b => b.classList.toggle('on', b.dataset.g === g));
+  try { localStorage.setItem('gsz', g); } catch { /* ignore */ }
+}
+document.querySelectorAll('#gsz button').forEach(b => { b.onclick = () => setGrid(b.dataset.g); });
+{ let g = 'm'; try { g = localStorage.getItem('gsz') || 'm'; } catch { /* ignore */ } setGrid(g); }
+// back to top
+const topBtn = $('#totop');
+addEventListener('scroll', () => { topBtn.hidden = scrollY < 700; }, { passive: true });
+topBtn.onclick = () => scrollTo({ top: 0, behavior: 'smooth' });
 showNote();
 load().then(loadAccount);
 

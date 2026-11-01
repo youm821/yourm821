@@ -9,6 +9,7 @@
 <link rel="apple-touch-icon" href="/favicon.png">
 <meta name="theme-color" content="#14141c">
 <title>Admin</title>
+<script src="/theme.js"></script>
 <link rel="stylesheet" href="/style.css">
 </head>
 <body class="showav">
@@ -22,11 +23,15 @@
 <div id="app" class="wrap" hidden>
   <header style="display:flex;justify-content:space-between;align-items:center;padding:28px 0 0">
     <h1 style="margin:0;font-size:26px">Admin</h1>
-    <div class="row"><a class="btn ghost sm" href="/">View site</a><button id="logout" class="btn ghost sm">Log out</button></div>
+    <div class="row"><a class="btn ghost sm" href="/" target="_blank" rel="noopener">Preview site</a><button id="logout" class="btn ghost sm">Log out</button></div>
   </header>
+  <div id="strip" class="strip">Checking cloud backup…</div>
+  <nav id="atabs" class="atabs"></nav>
 
   <section class="panel"><h3>Site</h3>
     <div class="fields"><input id="s-title" type="text" placeholder="Title" maxlength="60"><input id="s-sub" type="text" placeholder="Subtitle" maxlength="160"><input id="s-support" type="url" placeholder="Support server link (https://…)" maxlength="300"><button id="s-save" class="btn sm">Save</button></div>
+    <div class="fields" style="margin-top:10px"><select id="s-bstyle" aria-label="Banner style"></select><input id="s-btext" type="text" placeholder="Banner message (optional)" maxlength="100"><label style="color:var(--mute)">Own image <input id="s-bfile" type="file" accept="image/gif,image/png,image/webp,image/jpeg"></label><button id="s-bup" class="btn ghost sm" type="button">Upload banner image</button><button id="s-bdel" class="btn ghost sm" type="button">Remove image</button></div>
+    <div id="s-bprev" class="banner" style="margin-top:10px;border-radius:12px;border:1px solid var(--line)" hidden></div>
     <label class="tog" style="margin-top:10px"><input id="s-auto" type="checkbox"> Show new showcase submissions right away (skip approval)</label>
     <div id="s-msg" class="msg"></div>
   </section>
@@ -102,6 +107,8 @@
     <div class="row"><button id="cok" class="btn">Use this</button><button id="ccancel" class="btn ghost">Cancel</button></div>
   </div></div>
 </div>
+<script src="/badges.js"></script>
+<script src="/banner.js"></script>
 <script src="/admin.js"></script>
 </body>
 </html>

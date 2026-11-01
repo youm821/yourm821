@@ -8,16 +8,20 @@
 <link rel="apple-touch-icon" href="/favicon.png">
 <meta name="theme-color" content="#14141c">
 <title>Pixel Decorations</title>
+<script src="/theme.js"></script>
 <link rel="stylesheet" href="/style.css">
 </head>
 <body class="showav">
-<header class="top"><img id="me" class="me" alt="" hidden><div><h1 id="title">Pixel Decorations</h1><p id="subtitle"></p></div><a id="support" class="btn ghost sm support" target="_blank" rel="noopener noreferrer" hidden>Support server</a><div id="acct" class="acct"></div></header>
+<div id="hero" class="hero"><div id="banner" class="banner" hidden></div>
+<header class="top"><img id="me" class="me" alt="" hidden><div><h1 id="title">Pixel Decorations</h1><p id="subtitle"></p></div><a id="support" class="btn ghost sm support" target="_blank" rel="noopener noreferrer" hidden>Support server</a><div id="acct" class="acct"></div></header></div>
 <div id="note" class="note" hidden></div>
 <nav class="tabs"><button class="tab on" id="tab-gal">Gallery</button><button class="tab" id="tab-show">Showcase</button><a class="tab" href="/partners">Partners</a></nav>
 <div id="galwrap">
+<p class="hint">Pick a decoration to see it on your avatar.</p>
 <section class="tools">
   <input id="q" type="search" placeholder="Search…" autocomplete="off">
   <label class="tog"><input id="av" type="checkbox" checked> Preview on avatar</label>
+  <div class="seg" id="gsz" role="group" aria-label="Grid size"><button data-g="s" title="Small">S</button><button data-g="m" title="Medium">M</button><button data-g="l" title="Large">L</button></div>
 </section>
 <nav id="chips" class="chips"></nav>
 <main id="grid"></main>
@@ -31,7 +35,7 @@
   </div>
   <div id="showgrid"></div>
 </section>
-<footer class="foot"><span id="count"></span><span><a href="/partners">Partners</a> <a id="support2" target="_blank" rel="noopener noreferrer" hidden>Support server</a> <a href="/admin">Admin</a></span></footer>
+<footer class="foot"><span id="count"></span><span><a href="/about">About</a> <a href="/partners">Partners</a> <a id="support2" target="_blank" rel="noopener noreferrer" hidden>Support server</a> <a href="/admin">Admin</a></span></footer>
 <div id="modal" class="modal" hidden>
   <div class="sheet">
     <button class="x" id="close" aria-label="Close">&times;</button>
@@ -39,6 +43,9 @@
     <h2 id="mtitle"></h2><p id="mset"></p>
   </div>
 </div>
+<button id="totop" class="totop" hidden aria-label="Back to top">&uarr;</button>
+<script src="/badges.js"></script>
+<script src="/banner.js"></script>
 <script src="/gallery.js"></script>
 </body>
 </html>

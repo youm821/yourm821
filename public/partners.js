@@ -29,7 +29,7 @@ function card(p) {
 async function boot() {
   try {
     const s = await (await fetch('/api/items')).json();
-    if (s.settings) { document.title = 'Partners \u00b7 ' + s.settings.title; const u = s.settings.supportUrl; if (u && u.startsWith('https://')) { const a = $('#support'); a.href = u; a.hidden = false; } }
+    if (s.settings) { applyBanner($('#banner'), s.settings); $('#hero').classList.toggle('hasbanner', !$('#banner').hidden); document.title = 'Partners \u00b7 ' + s.settings.title; const u = s.settings.supportUrl; if (u && u.startsWith('https://')) { const a = $('#support'); a.href = u; a.hidden = false; } }
   } catch { /* optional */ }
   const box = $('#pgrid');
   try {
