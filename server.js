@@ -6,6 +6,7 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import zlib from 'node:zlib';
 import { fileURLToPath } from 'node:url';
+import { createPartners } from './partners.mjs';
 
 const ROOT = path.dirname(fileURLToPath(import.meta.url));
 const PORT = Number(process.env.PORT) || 3000;
@@ -95,7 +96,7 @@ async function restoreFromCloud(force = false) {
     const remote = JSON.parse(await r.text());
     db = { ...db, ...remote };
     await restoreAccountsFromCloud();
-    for (const i of [...db.items, ...db.photos, ...db.showcase, ...(db.background ? [db.background] : [])].filter(x => !x.seed)) {
+    for (const i of [...db.items, ...db.photos, ...db.showcase, ...partnerFileObjs(), ...(db.background ? [db.background] : [])].filter(x => !x.seed)) {
       const fp = path.join(UPLOAD_DIR, path.basename(i.file));
       if (fs.existsSync(fp)) continue;
       const f = await gh('GET', `/contents/${enc('uploads/' + path.basename(i.file))}?ref=${encodeURIComponent(GH_BRANCH)}`, null, true);
@@ -110,10 +111,13 @@ async function restoreFromCloud(force = false) {
 }
 function syncEverything() {
   pushDb();
-  for (const i of [...db.items, ...db.photos, ...db.showcase, ...(db.background ? [db.background] : [])].filter(x => !x.seed)) {
+  for (const i of [...db.items, ...db.photos, ...db.showcase, ...partnerFileObjs(), ...(db.background ? [db.background] : [])].filter(x => !x.seed)) {
     ghTask(async () => { try { await ghPut('uploads/' + i.file, await fsp.readFile(path.join(UPLOAD_DIR, i.file))); } catch (e) { if (e.code !== 'ENOENT') throw e; } });
   }
 }
+
+// ---------- partners: every uploaded logo/photo, so backup and restore cover them ----------
+const partnerFileObjs = () => (db.partners || []).flatMap(p => [p.logo, ...p.images].filter(Boolean));
 
 // ---------- permanent accounts ----------
 // Accounts are kept in three places: items.json, a separate accounts.json (+ accounts.prev.json, the version before),
@@ -160,12 +164,13 @@ async function restoreAccountsFromCloud() {
 }
 
 // ---------- data ----------
-let db = { settings: { title: 'Pixel Decorations', subtitle: 'Avatar decorations, made in pixels.' }, items: [], removedSeed: [], photos: [], removedSeedPhotos: [], activePhoto: null, users: [], showcase: [], background: null, removedUsers: [] };
+let db = { settings: { title: 'Pixel Decorations', subtitle: 'Avatar decorations, made in pixels.' }, items: [], removedSeed: [], photos: [], removedSeedPhotos: [], activePhoto: null, users: [], showcase: [], background: null, removedUsers: [], partners: [] };
 try { db = { ...db, ...JSON.parse(fs.readFileSync(DB_FILE, 'utf8')) }; } catch { /* first run */ }
 await restoreFromCloud();
 db.settings = { title: 'Pixel Decorations', subtitle: '', ...db.settings };
 if (!Array.isArray(db.users)) db.users = [];
 if (!Array.isArray(db.removedUsers)) db.removedUsers = [];
+if (!Array.isArray(db.partners)) db.partners = [];
 loadAccountFiles();
 
 function syncSeed() {
@@ -390,6 +395,7 @@ async function removeShowcase(id) {
 }
 
 async function api(req, res, p, m) {
+  if (p === '/api/partners' || p.startsWith('/api/partners/')) return partners.api(req, res, p, m);
   if (p === '/api/items' && m === 'GET') return json(res, 200, { settings: db.settings, photo: activePhotoSrc(), background: bgView(), items: db.items.filter(i => !i.hidden).map(pub) });
   if (p === '/api/me' && m === 'GET') {
     const au = userFromReq(req);
@@ -623,7 +629,7 @@ async function api(req, res, p, m) {
 
   if (p === '/api/backup.zip' && m === 'GET') {
     const entries = [{ name: 'items.json', data: Buffer.from(JSON.stringify(db, null, 1)) }];
-    for (const i of [...db.items, ...db.photos, ...db.showcase, ...(db.background ? [db.background] : [])]) if (!i.seed) { try { entries.push({ name: 'uploads/' + i.file, data: await fsp.readFile(path.join(UPLOAD_DIR, i.file)) }); } catch { /* missing file */ } }
+    for (const i of [...db.items, ...db.photos, ...db.showcase, ...partnerFileObjs(), ...(db.background ? [db.background] : [])]) if (!i.seed) { try { entries.push({ name: 'uploads/' + i.file, data: await fsp.readFile(path.join(UPLOAD_DIR, i.file)) }); } catch { /* missing file */ } }
     return send(res, 200, buildZip(entries), { 'Content-Type': 'application/zip', 'Content-Disposition': 'attachment; filename="gallery-backup.zip"', 'Cache-Control': 'no-store' });
   }
   return json(res, 404, { error: 'Not found' });
@@ -679,6 +685,12 @@ async function finishLogin(req, res, url) {
   } catch (e) { loginFail(e.name === 'TimeoutError' ? `Could not reach ${YAPIN} (timed out). Check YAPIN_BASE.` : String(e.message || e)); back('failed'); }
 }
 
+// ---------- partners page (admin-only editing) ----------
+const partners = createPartners({
+  getDb: () => db, saveDb, UPLOAD_DIR, ghTask, ghPut, ghDel, parseMultipart, imageExt, readBody,
+  json, clean, cleanUrl, isAdmin, sameOrigin, MAX_FILE, MAX_BODY
+});
+
 // ---------- server ----------
 async function handle(req, res) {
   const p = new URL(req.url, 'http://x').pathname, m = req.method;
@@ -689,6 +701,8 @@ async function handle(req, res) {
   if (m !== 'GET' && m !== 'HEAD') return send(res, 405, 'Method not allowed');
   if (p === '/') return serveStatic(req, res, PUBLIC_DIR, 'index.html', 'no-cache');
   if (p === '/admin') return serveStatic(req, res, PUBLIC_DIR, 'admin.html', 'no-cache');
+  if (p === '/partners') return serveStatic(req, res, PUBLIC_DIR, 'partners.html', 'no-cache');
+  if (p === '/admin/partners') return serveStatic(req, res, PUBLIC_DIR, 'partners-admin.html', 'no-cache');
   if (p.startsWith('/seed/')) return serveStatic(req, res, SEED_DIR, p.slice(6), 'public, max-age=86400');
   if (p.startsWith('/uploads/')) return serveStatic(req, res, UPLOAD_DIR, p.slice(9), 'public, max-age=86400');
   return serveStatic(req, res, PUBLIC_DIR, p.slice(1), 'no-cache');

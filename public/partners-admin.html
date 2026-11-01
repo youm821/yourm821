@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<link rel="icon" href="/favicon.png" type="image/png" sizes="64x64">
+<link rel="apple-touch-icon" href="/favicon.png">
+<meta name="theme-color" content="#14141c">
+<title>Manage partners</title>
+<link rel="stylesheet" href="/style.css">
+<link rel="stylesheet" href="/partners.css">
+</head>
+<body>
+<div class="wrap">
+  <div class="adminhead">
+    <h1>Manage partners</h1>
+    <div class="row">
+      <a class="btn ghost" href="/partners" target="_blank" rel="noopener">View public page</a>
+      <a class="btn ghost" href="/admin">Back to admin</a>
+    </div>
+  </div>
+
+  <section class="panel" id="gate" hidden>
+    <h3>Admins only</h3>
+    <p class="note-text">Sign in on the admin page first, then come back here.</p>
+    <div class="row" style="margin-top:12px"><a class="btn" href="/admin">Go to admin sign-in</a></div>
+  </section>
+
+  <div class="padmin" id="app" hidden>
+    <section class="panel" aria-labelledby="list-h">
+      <h3 id="list-h">Partners</h3>
+      <p class="note-text" id="empty" hidden>No partners yet. Fill in the form to add the first one.</p>
+      <ul class="plist" id="list"></ul>
+      <div class="actions"><button class="btn ghost" id="new" type="button">Add partner</button></div>
+    </section>
+
+    <section class="panel" aria-labelledby="form-h">
+      <h3 id="form-h">New partner</h3>
+
+      <div class="two">
+        <div><label for="f-name">Name</label><input id="f-name" type="text" maxlength="80"></div>
+        <div><label for="f-cat">Category</label><input id="f-cat" type="text" maxlength="40" placeholder="Sponsor, Creator, Shop…"></div>
+      </div>
+      <label for="f-tag">Short line</label>
+      <input id="f-tag" type="text" maxlength="140" placeholder="One sentence shown on the card">
+      <label for="f-web">Website</label>
+      <input id="f-web" type="text" maxlength="300" placeholder="example.com">
+      <label for="f-desc">About this partnership</label>
+      <textarea id="f-desc" maxlength="4000"></textarea>
+
+      <label>Logo</label>
+      <div class="logobox">
+        <img id="logo-img" alt="" hidden>
+        <input id="logo-file" type="file" accept="image/*" hidden>
+        <button class="btn ghost sm" id="logo-pick" type="button">Choose logo</button>
+        <button class="btn ghost sm" id="logo-clear" type="button" hidden>Remove logo</button>
+      </div>
+
+      <label>Photos</label>
+      <input id="photo-file" type="file" accept="image/*" multiple hidden>
+      <button class="btn ghost sm" id="photo-pick" type="button">Add photos</button>
+      <p class="hint">Up to 12. The first photo is the cover. Photos are shrunk in your browser before they upload.</p>
+      <div class="pphotos" id="photos"></div>
+
+      <div class="actions">
+        <button class="btn" id="save" type="button">Save partner</button>
+        <button class="btn ghost" id="clear" type="button">Clear form</button>
+        <span class="grow"></span>
+        <button class="btn danger" id="delete" type="button" hidden>Delete partner</button>
+      </div>
+      <p class="msg" id="msg" role="status"></p>
+    </section>
+  </div>
+</div>
+<script src="/partners-admin.js"></script>
+</body>
+</html>
