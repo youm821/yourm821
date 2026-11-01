@@ -2,7 +2,6 @@
 const $ = s => document.querySelector(s);
 function el(tag, cls, text) { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; }
 const LOGIN = 'Log in with Yapin\u2019';
-const BADGE_NAMES = { owner: 'Owner', dev: 'Dev', staff: 'Staff' };
 
 async function boot() {
   try { const s = await (await fetch('/api/items', { credentials: 'same-origin' })).json(); if (s.settings) { document.title = 'Log in \u00b7 ' + s.settings.title; const u = s.settings.supportUrl; if (u && u.startsWith('https://')) { const a = $('#s-support'); a.href = u; a.hidden = false; } } } catch { /* optional */ }
@@ -24,7 +23,7 @@ async function boot() {
     if (me.user.avatar_url) { const im = el('img'); im.src = me.user.avatar_url; im.alt = ''; im.referrerPolicy = 'no-referrer'; card.append(im); }
     else card.append(el('div', 'ini', (me.user.display_name || me.user.username || '?').slice(0, 1).toUpperCase()));
     const w = el('div', 'who', me.user.display_name || me.user.username || 'You');
-    for (const b of me.user.badges || []) if (BADGE_NAMES[b]) w.append(el('span', 'badge ' + b, BADGE_NAMES[b]));
+    try { w.append(badgeRow(me.user.badges)); } catch { /* badges.js missing */ }
     if (me.user.username) w.append(el('small', '', '@' + me.user.username));
     card.append(w); body.append(card);
     const go = el('a', 'btn', 'Go to the gallery'); go.href = '/';

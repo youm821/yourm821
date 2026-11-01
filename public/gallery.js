@@ -3,6 +3,7 @@ const state = { items: [], set: 'All', q: '', open: new Set() };
 try { state.set = localStorage.getItem('set') || 'All'; } catch { /* storage blocked */ }
 const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
 
+const badgeSafe = l => { try { return badgeRow(l); } catch { return document.createElement('span'); } }; // badges.js is optional
 const LOGIN = 'Login with Yapin\u2019';
 let ME = null;
 function setPreviewPhoto(url) {
@@ -16,7 +17,7 @@ async function loadAccount() {
     const name = me.user.display_name || me.user.username || 'You';
     if (me.user.avatar_url) { const im = el('img'); im.src = me.user.avatar_url; im.alt = ''; im.referrerPolicy = 'no-referrer'; box.append(im); setPreviewPhoto(me.user.avatar_url); }
     else box.append(el('div', 'ini', name.slice(0, 1).toUpperCase()));
-    const w = el('div', 'who', name); w.append(badgeRow(me.user.badges)); if (me.user.username) w.append(el('small', '', '@' + me.user.username)); box.append(w);
+    const w = el('div', 'who', name); w.append(badgeSafe(me.user.badges)); if (me.user.username) w.append(el('small', '', '@' + me.user.username)); box.append(w);
     const out = el('button', 'btn ghost sm', 'Log out');
     out.onclick = async () => { await fetch('/api/user/logout', { method: 'POST', credentials: 'same-origin' }); location.reload(); };
     box.append(out);
@@ -35,7 +36,7 @@ async function load() {
   document.title = d.settings.title;
   $('#title').textContent = d.settings.title;
   $('#subtitle').textContent = d.settings.subtitle || '';
-  applyBanner($('#banner'), d.settings); $('#hero').classList.toggle('hasbanner', !$('#banner').hidden);
+  try { applyBanner($('#banner'), d.settings); $('#hero').classList.toggle('hasbanner', !$('#banner').hidden); } catch { /* banner.js missing: the gallery still works */ }
   const sup = d.settings.supportUrl;
   for (const id of ['#support', '#support2']) { const a = $(id); if (sup && sup.startsWith('https://')) { a.href = sup; a.hidden = false; } else a.hidden = true; }
   if (d.photo) {
@@ -117,7 +118,7 @@ $('#tab-gal').onclick = () => tab('gal'); $('#tab-show').onclick = () => tab('sh
 function byLine(by) {
   const d = el('div', 'by');
   if (by.avatar_url) { const im = el('img'); im.src = by.avatar_url; im.alt = ''; im.referrerPolicy = 'no-referrer'; d.append(im); } else d.append(el('div', 'ini', (by.name || '?').slice(0, 1).toUpperCase()));
-  const who = el('span', '', 'by ' + by.name); who.append(badgeRow(by.badges)); d.append(who); return d;
+  const who = el('span', '', 'by ' + by.name); who.append(badgeSafe(by.badges)); d.append(who); return d;
 }
 async function loadShowcase() {
   if (!ME) { try { ME = await (await fetch('/api/me', { credentials: 'same-origin' })).json(); } catch { ME = {}; } }
