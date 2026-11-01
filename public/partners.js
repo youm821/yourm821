@@ -15,9 +15,13 @@
     return n;
   }
 
-  /* Same title and custom background as the gallery. */
+  /* Same header, avatar, support link and custom background as the gallery. */
   fetch('/api/items').then((r) => r.json()).then((d) => {
-    if (d.settings && d.settings.title) { $('#site').textContent = d.settings.title; document.title = 'Partners · ' + d.settings.title; }
+    const s = d.settings || {};
+    if (s.title) { $('#title').textContent = s.title; $('#site').textContent = s.title; document.title = 'Partners \u00b7 ' + s.title; }
+    $('#subtitle').textContent = s.subtitle || '';
+    if (d.photo) { const me = $('#me'); me.src = d.photo; me.hidden = false; }
+    if (s.supportUrl) { const a = $('#support'); a.href = s.supportUrl; a.hidden = false; }
     if (d.background && d.background.src) {
       document.body.style.setProperty('--bg-img', 'url("' + d.background.src + '")');
       document.body.style.setProperty('--bg-dim', String((d.background.dim ?? 55) / 100));
