@@ -20,6 +20,7 @@ const YAPIN = (process.env.YAPIN_BASE || 'https://www.yapin.gg').replace(/\/$/, 
 const Y_ID = process.env.YAPPER_CLIENT_ID || '';
 const Y_SECRET = process.env.YAPPER_CLIENT_SECRET || '';
 const loginOn = !!(Y_ID && Y_SECRET);
+const CB_PATH = (process.env.CALLBACK_PATH || '/auth/callback').replace(/^\/?/, '/'); // must match the redirect URL registered in Yapin'
 const MAX_FILE = 10 * 1024 * 1024;
 const MAX_BODY = 80 * 1024 * 1024;
 
@@ -450,7 +451,7 @@ async function api(req, res, p, m) {
     return json(res, 200, { added: added.map(photoView), rejected });
   }
   if (p === '/api/admin/users' && m === 'GET')
-    return json(res, 200, { login: loginOn, users: [...db.users].sort((a, b) => (b.lastLogin || 0) - (a.lastLogin || 0)).map(u => ({ ...pubUser(u), firstSeen: u.firstSeen, lastLogin: u.lastLogin })) });
+    return json(res, 200, { login: loginOn, redirectUrl: baseUrl(req) + CB_PATH, yapin: YAPIN, hasId: !!Y_ID, hasSecret: !!Y_SECRET, lastError: loginDiag.error, lastErrorAt: loginDiag.at, users: [...db.users].sort((a, b) => (b.lastLogin || 0) - (a.lastLogin || 0)).map(u => ({ ...pubUser(u), firstSeen: u.firstSeen, lastLogin: u.lastLogin })) });
   if (p === '/api/admin/showcase' && m === 'GET') return json(res, 200, { auto: !!db.settings.showcaseAuto, items: db.showcase.map(x => scView(x, null)) });
   let am;
   if ((am = /^\/api\/admin\/showcase\/([\w-]+)$/.exec(p))) {
@@ -529,28 +530,30 @@ const stateCookie = (v, req, age) => `oauth_state=${v}; HttpOnly; SameSite=Lax; 
 function startLogin(req, res) {
   if (!loginOn) return send(res, 503, 'Login with Yapin\u2019 is not set up on this server yet.');
   const state = crypto.randomBytes(16).toString('hex');
-  const q = new URLSearchParams({ client_id: Y_ID, redirect_uri: baseUrl(req) + '/callback', response_type: 'code', scope: 'identify', state });
+  const q = new URLSearchParams({ client_id: Y_ID, redirect_uri: baseUrl(req) + CB_PATH, response_type: 'code', scope: 'identify', state });
   res.writeHead(302, { Location: `${YAPIN}/oauth/authorize?${q}`, 'Set-Cookie': stateCookie(state, req, 600), 'Cache-Control': 'no-store', ...SEC });
   res.end();
 }
+const loginDiag = { at: null, error: null };
+const loginFail = why => { loginDiag.at = Date.now(); loginDiag.error = why; console.error('login failed:', why); };
 async function finishLogin(req, res, url) {
   const back = m => { res.writeHead(302, { Location: '/?login=' + m, 'Set-Cookie': stateCookie('', req, 0), 'Cache-Control': 'no-store', ...SEC }); res.end(); };
   if (!loginOn) return back('failed');
   const q = url.searchParams, state = q.get('state') || '', saved = cookies(req).oauth_state || '';
   const a = Buffer.from(state), b = Buffer.from(saved);
-  if (!saved || a.length !== b.length || !crypto.timingSafeEqual(a, b)) return back('failed');
-  if (q.get('error')) return back(q.get('error') === 'access_denied' ? 'cancelled' : 'failed');
+  if (!saved || a.length !== b.length || !crypto.timingSafeEqual(a, b)) { loginFail('The browser lost its login cookie on the way back (state mismatch). Try again in a normal, non-private tab and make sure cookies are allowed.'); return back('failed'); }
+  if (q.get('error')) { if (q.get('error') !== 'access_denied') loginFail('Yapin\u2019 sent back an error: ' + clean(q.get('error') + ' ' + (q.get('error_description') || ''), 200)); return back(q.get('error') === 'access_denied' ? 'cancelled' : 'failed'); }
   const code = q.get('code'); if (!code) return back('failed');
   try {
     const tr = await fetch(`${YAPIN}/api/oauth/token`, {
       method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, signal: AbortSignal.timeout(10000),
-      body: new URLSearchParams({ grant_type: 'authorization_code', code, redirect_uri: baseUrl(req) + '/callback', client_id: Y_ID, client_secret: Y_SECRET })
+      body: new URLSearchParams({ grant_type: 'authorization_code', code, redirect_uri: baseUrl(req) + CB_PATH, client_id: Y_ID, client_secret: Y_SECRET })
     });
-    if (!tr.ok) throw new Error('token request ' + tr.status);
+    if (!tr.ok) { const t = clean(await tr.text().catch(() => ''), 200); throw new Error(`Yapin\u2019 refused the code swap (HTTP ${tr.status}${t ? ': ' + t : ''}). Usually the redirect URL registered in Yapin\u2019 doesn\u2019t match ${baseUrl(req)}${CB_PATH} exactly, or the client secret is wrong.`); }
     const { access_token } = await tr.json();
     if (!access_token) throw new Error('no access token');
     const mr = await fetch(`${YAPIN}/api/oauth/me`, { headers: { Authorization: 'Bearer ' + access_token }, signal: AbortSignal.timeout(10000) });
-    if (!mr.ok) throw new Error('me request ' + mr.status);
+    if (!mr.ok) throw new Error(`Yapin\u2019 would not return the profile (HTTP ${mr.status}).`);
     const me = await mr.json(), id = String(me.id ?? '');
     if (!/^[\w-]{1,64}$/.test(id)) throw new Error('unexpected id');
     let u = db.users.find(x => x.id === id);
@@ -559,7 +562,7 @@ async function finishLogin(req, res, url) {
     await saveDb();
     res.writeHead(302, { Location: '/?login=ok', 'Set-Cookie': [`usid=${makeUserToken(id)}; HttpOnly; SameSite=Lax; Path=/; Max-Age=2592000${secure(req)}`, stateCookie('', req, 0)], 'Cache-Control': 'no-store', ...SEC });
     res.end();
-  } catch (e) { console.error('login failed:', e.message); back('failed'); }
+  } catch (e) { loginFail(e.name === 'TimeoutError' ? `Could not reach ${YAPIN} (timed out). Check YAPIN_BASE.` : String(e.message || e)); back('failed'); }
 }
 
 // ---------- server ----------
@@ -567,7 +570,7 @@ async function handle(req, res) {
   const p = new URL(req.url, 'http://x').pathname, m = req.method;
   if (p === '/healthz') return send(res, 200, 'ok', { 'Cache-Control': 'no-store' });
   if (p === '/login' && m === 'GET') return startLogin(req, res);
-  if (p === '/callback' && m === 'GET') return finishLogin(req, res, new URL(req.url, 'http://x'));
+  if ((p === CB_PATH || p === '/callback' || p === '/auth/callback') && m === 'GET') return finishLogin(req, res, new URL(req.url, 'http://x'));
   if (p.startsWith('/api/')) return api(req, res, p, m);
   if (m !== 'GET' && m !== 'HEAD') return send(res, 405, 'Method not allowed');
   if (p === '/') return serveStatic(req, res, PUBLIC_DIR, 'index.html', 'no-cache');
@@ -607,5 +610,3 @@ server.listen(PORT, '0.0.0.0', () => console.log(`Gallery on :${PORT}  data=${DA
 process.on('uncaughtException', e => console.error('uncaught', e));
 process.on('unhandledRejection', e => console.error('unhandled', e));
 for (const sig of ['SIGTERM', 'SIGINT']) process.on(sig, () => { server.close(() => process.exit(0)); setTimeout(() => process.exit(0), 8000).unref(); });
-
-
