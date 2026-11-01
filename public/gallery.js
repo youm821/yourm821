@@ -76,12 +76,6 @@ function render() {
 function openModal(i) {
   $('#mimg').src = i.src; $('#mimg').alt = i.title;
   $('#mtitle').textContent = i.title; $('#mset').textContent = i.set;
-  const dl = $('#mdl'); dl.href = i.src; dl.download = i.title.replace(/[^\w-]+/g, '_') + i.src.slice(i.src.lastIndexOf('.'));
-  $('#mcopy').onclick = async () => {
-    try { await navigator.clipboard.writeText(location.origin + i.src); $('#mcopy').textContent = 'Copied!'; }
-    catch { $('#mcopy').textContent = 'Press Ctrl+C on the address'; }
-    setTimeout(() => { $('#mcopy').textContent = 'Copy link'; }, 1500);
-  };
   $('#modal').hidden = false;
 }
 const closeModal = () => { $('#modal').hidden = true; };
@@ -145,3 +139,7 @@ $('#sh-go').onclick = async () => {
   } catch (e) { say(e.message, 'err'); }
 };
 if (location.hash === '#showcase') tab('show');
+
+// Discourage saving: no right-click menu or dragging on images
+document.addEventListener('contextmenu', e => { if (e.target.tagName === 'IMG') e.preventDefault(); });
+document.addEventListener('dragstart', e => { if (e.target.tagName === 'IMG') e.preventDefault(); });
