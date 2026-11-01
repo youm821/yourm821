@@ -91,7 +91,7 @@ async function boot() {
   $('#login').hidden = true; $('#app').hidden = false;
   await refresh();
   setupTabs(); loadStrip(); setInterval(loadStrip, 20000);
-  loadSync(); setInterval(loadSync, 15000); loadPhotos(); loadPartners(); loadUsers(); loadShowcase(); loadUptime(); setInterval(loadUptime, 20000);
+  loadSync(); setInterval(loadSync, 15000); loadPhotos(); loadPartners(); loadUsers().catch(e => { console.error(e); $('#users').replaceChildren(el('div', 'empty', 'Could not load accounts: ' + e.message)); }); loadShowcase(); loadUptime(); setInterval(loadUptime, 20000);
 }
 async function loadSync() {
   try {
@@ -274,8 +274,8 @@ async function loadUsers() {
   info.append(el('br'), 'Client ID: ' + (d.hasId ? 'set' : 'MISSING') + ' \u00b7 Client secret: ' + (d.hasSecret ? 'set' : 'MISSING') + ' \u00b7 Yapin\u2019 address: ' + d.yapin);
   if (d.lastError) info.append(el('br'), el('b', '', 'Last login problem' + (d.lastErrorAt ? ' (' + new Date(d.lastErrorAt).toLocaleString() + ')' : '') + ': '), d.lastError);
   if (!d.users.length) box.append(el('div', 'empty', 'Nobody has logged in yet.'));
-  for (const u of d.users) {
-    const c = el('div', 'u'); const name = u.display_name || u.username || u.id;
+  for (const u of d.users) { try {
+    const name = String(u.display_name || u.username || u.id || 'Someone'); const c = el('div', 'u');
     if (u.avatar_url) { const im = el('img'); im.src = u.avatar_url; im.alt = ''; im.referrerPolicy = 'no-referrer'; c.append(im); } else c.append(el('div', 'ini', name.slice(0, 1).toUpperCase()));
     const t = el('div', 't'); t.append(el('b', '', name), badgeRow(u.badges), el('span', '', (u.username ? '@' + u.username + ' · ' : '') + (u.lastLogin ? new Date(u.lastLogin).toLocaleDateString() : ''))); c.append(t);
     const rm = el('button', 'btn danger sm', 'Remove'); rm.onclick = async () => { if (!confirm('Remove ' + name + '? They can log in again.')) return; await api('DELETE', '/api/users/' + encodeURIComponent(u.id)); loadUsers(); };
@@ -297,7 +297,7 @@ async function loadUsers() {
     }
     if (u.admin) t.append(el('span', '', ' \u00b7 admin'));
     c.append(rm); if (c._pick) c.append(c._pick); box.append(c);
-  }
+  } catch (e) { console.error(e); box.append(el('div', 'empty', 'Could not show account ' + ((u && u.id) || '?') + ': ' + e.message)); } }
 }
 
 // ---------- showcase review ----------
