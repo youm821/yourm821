@@ -14,6 +14,53 @@ async function api(method, url, body) {
 const say = (id, text, kind) => { const m = $(id); m.textContent = text || ''; m.className = 'msg' + (kind ? ' ' + kind : ''); };
 
 function badgeRow(list) { const r = el('span', 'badges'); for (const b of list || []) r.append(el('span', 'badge ' + b, b.charAt(0).toUpperCase() + b.slice(1))); return r; }
+// ---------- partners ----------
+async function form(method, url, fd) {
+  const r = await fetch(url, { method, body: fd, credentials: 'same-origin' });
+  const d = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(d.error || 'Something went wrong');
+  return d;
+}
+const kindSelect = v => { const s = el('select'); for (const [k, l] of [['server', 'Server'], ['creator', 'Creator'], ['partner', 'Partner']]) { const o = el('option', '', l); o.value = k; s.append(o); } s.value = v; return s; };
+async function loadPartners() {
+  const d = await api('GET', '/api/partners'); const box = $('#pt-list'); box.replaceChildren();
+  if (!d.partners.length) box.append(el('div', 'empty', 'No partners yet.'));
+  d.partners.forEach((p, idx) => {
+    const c = el('div', 'ptcard');
+    if (p.cover) { const im = el('img', 'thumb'); im.src = p.cover; im.alt = ''; c.append(im); } else c.append(el('div', 'thumb', 'No cover'));
+    const r = el('div');
+    const f = el('div', 'fields'); const name = el('input'); name.type = 'text'; name.value = p.name; name.maxLength = 60; const kind = kindSelect(p.kind); const url = el('input'); url.type = 'url'; url.value = p.url; url.placeholder = 'https://…'; url.maxLength = 300;
+    f.append(name, kind, url);
+    const f2 = el('div', 'fields'); const blurb = el('input'); blurb.type = 'text'; blurb.value = p.blurb; blurb.maxLength = 400; blurb.style.flex = '1'; f2.append(blurb);
+    const msg = el('div', 'msg');
+    const save = el('button', 'btn sm', 'Save'); save.onclick = async () => { try { await api('PUT', '/api/partners/' + p.id, { name: name.value, kind: kind.value, url: url.value, blurb: blurb.value }); msg.textContent = 'Saved.'; msg.className = 'msg ok'; } catch (e) { msg.textContent = e.message; msg.className = 'msg err'; } };
+    f2.append(save);
+    const works = el('div', 'ptw');
+    for (const w of p.works) { const d1 = el('div'); const im = el('img'); im.src = w.src; im.alt = ''; const x = el('button', '', '\u00d7'); x.title = 'Remove'; x.onclick = async () => { await api('DELETE', '/api/partners/' + p.id + '/images/' + encodeURIComponent(w.file)); loadPartners(); }; d1.append(im, x); works.append(d1); }
+    const row = el('div', 'fields');
+    const cov = el('input'); cov.type = 'file'; cov.accept = 'image/gif,image/png,image/webp,image/jpeg';
+    const wk = el('input'); wk.type = 'file'; wk.accept = cov.accept; wk.multiple = true;
+    const up = el('button', 'btn ghost sm', 'Upload pictures'); up.onclick = async () => {
+      const fd = new FormData(); if (cov.files[0]) fd.append('cover', cov.files[0]); for (const x of wk.files) fd.append('works', x);
+      if ([...fd.keys()].length === 0) { msg.textContent = 'Choose a cover and/or work pictures first.'; msg.className = 'msg err'; return; }
+      try { await form('POST', '/api/partners/' + p.id + '/images', fd); loadPartners(); } catch (e) { msg.textContent = e.message; msg.className = 'msg err'; }
+    };
+    const lc = el('label', '', 'Cover '); lc.style.color = 'var(--mute)'; lc.append(cov); const lw = el('label', '', 'Work '); lw.style.color = 'var(--mute)'; lw.append(wk);
+    row.append(lc, lw, up);
+    const ctl = el('div', 'fields'); ctl.style.marginTop = '8px';
+    const mv = (dir, label) => { const b = el('button', 'btn ghost sm', label); b.onclick = async () => { await api('POST', '/api/partners/' + p.id + '/move', { dir }); loadPartners(); }; return b; };
+    const del = el('button', 'btn danger sm', 'Delete'); del.onclick = async () => { if (!confirm('Delete ' + p.name + ' and its pictures?')) return; await api('DELETE', '/api/partners/' + p.id); loadPartners(); };
+    ctl.append(mv(-1, 'Move up'), mv(1, 'Move down'), del);
+    r.append(f, f2, works, row, ctl, msg); c.append(r); box.append(c);
+  });
+}
+$('#pt-add').onclick = async () => {
+  const fd = new FormData(); fd.append('name', $('#pt-name').value); fd.append('kind', $('#pt-kind').value); fd.append('url', $('#pt-url').value); fd.append('blurb', $('#pt-blurb').value);
+  if ($('#pt-cover').files[0]) fd.append('cover', $('#pt-cover').files[0]);
+  for (const x of [...$('#pt-works').files].slice(0, 4)) fd.append('works', x);
+  try { await form('POST', '/api/partners', fd); say('#pt-msg', 'Added.', 'ok'); for (const id of ['#pt-name', '#pt-url', '#pt-blurb', '#pt-cover', '#pt-works']) $(id).value = ''; loadPartners(); }
+  catch (e) { say('#pt-msg', e.message, 'err'); }
+};
 function showLogin() { $('#app').hidden = true; $('#login').hidden = false; $('#pw').focus(); }
 async function boot() {
   const me = await (await fetch('/api/me', { credentials: 'same-origin' })).json();
@@ -21,7 +68,7 @@ async function boot() {
   if (!me.admin) { showLogin(); if (!me.configured) say('#lmsg', 'ADMIN_PASSWORD is not set on the server yet.', 'err'); return; }
   $('#login').hidden = true; $('#app').hidden = false;
   await refresh();
-  loadSync(); setInterval(loadSync, 15000); loadPhotos(); loadUsers(); loadShowcase(); loadUptime(); setInterval(loadUptime, 20000);
+  loadSync(); setInterval(loadSync, 15000); loadPhotos(); loadPartners(); loadUsers(); loadShowcase(); loadUptime(); setInterval(loadUptime, 20000);
 }
 async function loadSync() {
   try {
@@ -44,7 +91,7 @@ $('#logout').onclick = async () => { await api('POST', '/api/logout', {}).catch(
 
 async function refresh() {
   const d = await api('GET', '/api/admin/items');
-  S.items = d.items; drawBg(d.background);
+  S.items = d.items;
   $('#s-auto').checked = !!d.settings.showcaseAuto; $('#s-title').value = d.settings.title; $('#s-sub').value = d.settings.subtitle || ''; $('#s-support').value = d.settings.supportUrl || '';
   const sets = [...new Set(S.items.map(i => i.set))];
   $('#sets').replaceChildren(...sets.map(s => { const o = el('option'); o.value = s; return o; }));
@@ -187,7 +234,6 @@ async function loadUsers() {
   $('#u-n').textContent = '(' + d.users.length + ')';
   $('#u-info').textContent = d.login ? 'Login with Yapin\u2019 is on. Everyone who logged in appears here.' : 'Login with Yapin\u2019 is off. Set YAPPER_CLIENT_ID and YAPPER_CLIENT_SECRET on the server (see the README).';
   const info = $('#u-info');
-  $('#keep-note').textContent = 'Accounts are saved on the server every time something changes, with the version before kept as a spare. ' + (d.cloud ? 'They are also copied to your GitHub backup, so a wiped server gets them back on its own.' : 'GitHub backup is off, so a wiped server would lose them. Download a copy now and then, or switch on the GitHub backup (see the README).') + ' People stay logged in for a year.';
   info.append(el('br'), 'Redirect URL to register in Yapin\u2019 (must match exactly): ', el('b', '', d.redirectUrl));
   info.append(el('br'), 'Client ID: ' + (d.hasId ? 'set' : 'MISSING') + ' \u00b7 Client secret: ' + (d.hasSecret ? 'set' : 'MISSING') + ' \u00b7 Yapin\u2019 address: ' + d.yapin);
   if (d.lastError) info.append(el('br'), el('b', '', 'Last login problem' + (d.lastErrorAt ? ' (' + new Date(d.lastErrorAt).toLocaleString() + ')' : '') + ': '), d.lastError);
@@ -243,40 +289,3 @@ async function loadUptime() {
       : 'Self-check is off (no site address known). Set PUBLIC_URL to your site address to turn it on.';
   } catch { /* logged out */ }
 }
-
-// ---------- background ----------
-function drawBg(bg) {
-  const prev = $('#bgprev');
-  prev.style.backgroundImage = bg ? `linear-gradient(rgba(19,18,26,${bg.dim / 100}),rgba(19,18,26,${bg.dim / 100})),url("${bg.src}")` : '';
-  $('#bgnone').hidden = !!bg; $('#bg-del').hidden = !bg;
-  $('#bg-dim').value = bg ? bg.dim : 55; $('#bg-dimv').textContent = (bg ? bg.dim : 55) + '%';
-}
-$('#bg-go').onclick = async () => {
-  const file = $('#bg-file').files[0];
-  if (!file) return say('#bg-msg', 'Choose an image first.', 'err');
-  const fd = new FormData(); fd.append('file', file); say('#bg-msg', 'Uploading…');
-  try {
-    const r = await fetch('/api/background', { method: 'POST', body: fd, credentials: 'same-origin' });
-    const d = await r.json().catch(() => ({})); if (!r.ok) throw new Error(d.error || 'Upload failed');
-    drawBg(d); $('#bg-file').value = ''; say('#bg-msg', 'Background saved. It shows on the gallery now.', 'ok');
-  } catch (e) { say('#bg-msg', e.message, 'err'); }
-};
-$('#bg-del').onclick = async () => { try { await api('DELETE', '/api/background'); drawBg(null); say('#bg-msg', 'Background removed.', 'ok'); } catch (e) { say('#bg-msg', e.message, 'err'); } };
-let bgTimer;
-$('#bg-dim').oninput = e => {
-  const v = +e.target.value; $('#bg-dimv').textContent = v + '%';
-  const m = /url\("[^"]*"\)/.exec($('#bgprev').style.backgroundImage); if (m) $('#bgprev').style.backgroundImage = `linear-gradient(rgba(19,18,26,${v / 100}),rgba(19,18,26,${v / 100})),${m[0]}`;
-  clearTimeout(bgTimer); bgTimer = setTimeout(() => api('PATCH', '/api/background', { dim: v }).catch(x => say('#bg-msg', x.message, 'err')), 400);
-};
-
-// ---------- keep accounts ----------
-$('#acc-go').onclick = async () => {
-  const file = $('#acc-file').files[0];
-  if (!file) return say('#acc-msg', 'Choose an accounts file first.', 'err');
-  try {
-    const users = JSON.parse(await file.text());
-    const d = await api('POST', '/api/admin/accounts/import', users);
-    say('#acc-msg', d.added ? `Restored ${d.added} account${d.added === 1 ? '' : 's'}. ${d.total} in total.` : 'Nothing to add. Everyone in that file is already here.', 'ok');
-    $('#acc-file').value = ''; loadUsers();
-  } catch (e) { say('#acc-msg', e instanceof SyntaxError ? 'That file is not valid JSON.' : e.message, 'err'); }
-};

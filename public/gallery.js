@@ -26,7 +26,7 @@ async function loadAccount() {
     out.onclick = async () => { await fetch('/api/user/logout', { method: 'POST', credentials: 'same-origin' }); location.reload(); };
     box.append(out);
   } else if (me.login) {
-    const a = el('a', 'btn', LOGIN); a.href = '/login'; box.append(a);
+    const a = el('a', 'btn', LOGIN); a.href = '/signin'; box.append(a);
   }
 }
 function showNote() {
@@ -34,12 +34,6 @@ function showNote() {
   const msg = { ok: ['ok', 'You are logged in. Your profile picture now shows in the previews.'], cancelled: ['', 'Login cancelled.'], failed: ['bad', 'Login did not work. Please try again.'] }[r];
   if (msg) { const n = $('#note'); n.textContent = msg[1]; n.className = 'note ' + msg[0]; n.hidden = false; setTimeout(() => { n.hidden = true; }, 6000); }
   history.replaceState(null, '', location.pathname);
-}
-function applyBackground(bg) {
-  const r = document.documentElement.style;
-  document.body.classList.toggle('hasbg', !!bg);
-  if (bg) { r.setProperty('--bg-img', `url("${bg.src}")`); r.setProperty('--bg-dim', String(bg.dim / 100)); }
-  else { r.removeProperty('--bg-img'); r.removeProperty('--bg-dim'); }
 }
 async function load() {
   const d = await (await fetch('/api/items', { cache: 'no-cache' })).json();
@@ -52,7 +46,6 @@ async function load() {
     $('#me').src = d.photo; $('#me').hidden = false;
     document.documentElement.style.setProperty('--photo-bg', `url("${d.photo}") center/cover no-repeat`);
   }
-  applyBackground(d.background);
   state.items = d.items;
   render();
 }
@@ -81,9 +74,7 @@ function render() {
       const st = el('div', 'stage'); st.append(el('div', 'av'));
       const img = el('img'); img.src = i.src; img.alt = i.title; img.loading = 'lazy'; st.append(img);
       f.append(st, el('figcaption', '', i.title));
-      f.tabIndex = 0; f.setAttribute('role', 'button'); f.setAttribute('aria-label', 'Preview ' + i.title);
       f.onclick = () => openModal(i);
-      f.onkeydown = e => { if ((e.key === 'Enter' || e.key === ' ') && e.target === f) { e.preventDefault(); openModal(i); } };
       g.append(f);
     }
     grid.append(g);
@@ -93,11 +84,9 @@ function render() {
 function openModal(i) {
   $('#mimg').src = i.src; $('#mimg').alt = i.title;
   $('#mtitle').textContent = i.title; $('#mset').textContent = i.set;
-  lastFocus = document.activeElement;
-  $('#modal').hidden = false; $('#close').focus();
+  $('#modal').hidden = false;
 }
-let lastFocus = null;
-const closeModal = () => { $('#modal').hidden = true; if (lastFocus && lastFocus.focus) lastFocus.focus(); };
+const closeModal = () => { $('#modal').hidden = true; };
 $('#close').onclick = closeModal;
 $('#modal').onclick = e => { if (e.target.id === 'modal') closeModal(); };
 addEventListener('keydown', e => { if (e.key === 'Escape') closeModal(); });
@@ -125,7 +114,7 @@ async function loadShowcase() {
   const d = await (await fetch('/api/showcase', { credentials: 'same-origin', cache: 'no-cache' })).json();
   const box = $('#shareBox'); box.replaceChildren();
   if (ME.user) { const b = el('button', 'btn', 'Share your work'); b.onclick = () => { $('#shareForm').hidden = !$('#shareForm').hidden; }; box.append(b); }
-  else if (ME.login) { const a = el('a', 'btn', LOGIN); a.href = '/login'; box.append(a); }
+  else if (ME.login) { const a = el('a', 'btn', LOGIN); a.href = '/signin'; box.append(a); }
   const grid = $('#showgrid'); grid.replaceChildren();
   if (!d.items.length) { grid.append(el('div', 'empty', 'Nothing shared yet. Be the first!')); return; }
   const g = el('div', 'grid');
@@ -139,8 +128,6 @@ async function loadShowcase() {
       del.onclick = async e => { e.stopPropagation(); if (!confirm('Delete "' + i.title + '"?')) return; await fetch('/api/showcase/' + i.id, { method: 'DELETE', credentials: 'same-origin' }); loadShowcase(); };
       f.append(del);
     }
-    f.tabIndex = 0; f.setAttribute('role', 'button'); f.setAttribute('aria-label', 'Preview ' + i.title);
-    f.onkeydown = e => { if ((e.key === 'Enter' || e.key === ' ') && e.target === f) { e.preventDefault(); openModal({ src: i.src, title: i.title, set: 'by ' + i.by.name }); } };
     f.onclick = () => openModal({ src: i.src, title: i.title, set: 'by ' + i.by.name });
     g.append(f);
   }

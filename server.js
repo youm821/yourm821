@@ -6,7 +6,6 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import zlib from 'node:zlib';
 import { fileURLToPath } from 'node:url';
-import { createPartners } from './partners.mjs';
 
 const ROOT = path.dirname(fileURLToPath(import.meta.url));
 const PORT = Number(process.env.PORT) || 3000;
@@ -83,7 +82,7 @@ let dbTimer;
 function pushDb() {
   if (!ghOn || !cloudSafe) return;
   clearTimeout(dbTimer);
-  dbTimer = setTimeout(() => { ghTask(() => ghPut('items.json', Buffer.from(JSON.stringify(db, null, 1)))); ghTask(() => ghPut('accounts.json', Buffer.from(accountsBlob()))); }, 2500);
+  dbTimer = setTimeout(() => ghTask(() => ghPut('items.json', Buffer.from(JSON.stringify(db, null, 1)))), 2500);
 }
 async function restoreFromCloud(force = false) {
   if (!ghOn) return;
@@ -91,12 +90,11 @@ async function restoreFromCloud(force = false) {
   try {
     await ensureBranch();
     const r = await gh('GET', `/contents/items.json?ref=${encodeURIComponent(GH_BRANCH)}`, null, true);
-    if (r.status === 404) { await restoreAccountsFromCloud(); cloudSafe = true; console.log('Cloud backup: nothing saved yet.'); return; }
+    if (r.status === 404) { cloudSafe = true; console.log('Cloud backup: nothing saved yet.'); return; }
     if (!r.ok) throw new Error('GitHub answered ' + r.status);
     const remote = JSON.parse(await r.text());
     db = { ...db, ...remote };
-    await restoreAccountsFromCloud();
-    for (const i of [...db.items, ...db.photos, ...db.showcase, ...partnerFileObjs(), ...(db.background ? [db.background] : [])].filter(x => !x.seed)) {
+    for (const i of allUploads().filter(x => !x.seed)) {
       const fp = path.join(UPLOAD_DIR, path.basename(i.file));
       if (fs.existsSync(fp)) continue;
       const f = await gh('GET', `/contents/${enc('uploads/' + path.basename(i.file))}?ref=${encodeURIComponent(GH_BRANCH)}`, null, true);
@@ -109,69 +107,22 @@ async function restoreFromCloud(force = false) {
     setTimeout(async () => { await restoreFromCloud(true); if (cloudSafe) { db.settings = { title: 'Pixel Decorations', subtitle: '', ...db.settings }; syncSeed(); syncSeedPhotos(); await saveDb(); } }, 60000).unref();
   }
 }
+const PARTNER_KINDS = { server: 'Server', creator: 'Creator', partner: 'Partner' };
+const ptImgs = p => [p.file, ...(p.works || []).map(w => w.file)].filter(Boolean);
+function allUploads() { return [...db.items, ...db.photos, ...db.showcase, ...(db.partners || []).flatMap(p => ptImgs(p).map(file => ({ file })))]; }
 function syncEverything() {
   pushDb();
-  for (const i of [...db.items, ...db.photos, ...db.showcase, ...partnerFileObjs(), ...(db.background ? [db.background] : [])].filter(x => !x.seed)) {
+  for (const i of allUploads().filter(x => !x.seed)) {
     ghTask(async () => { try { await ghPut('uploads/' + i.file, await fsp.readFile(path.join(UPLOAD_DIR, i.file))); } catch (e) { if (e.code !== 'ENOENT') throw e; } });
   }
 }
 
-// ---------- partners: every uploaded logo/photo, so backup and restore cover them ----------
-const partnerFileObjs = () => (db.partners || []).flatMap(p => [p.logo, ...p.images].filter(Boolean));
-
-// ---------- permanent accounts ----------
-// Accounts are kept in three places: items.json, a separate accounts.json (+ accounts.prev.json, the version before),
-// and the GitHub backup. On start-up all copies are merged, so losing or corrupting one never loses an account.
-const ACCOUNTS_FILE = path.join(DATA_DIR, 'accounts.json');
-const ACCOUNTS_PREV = path.join(DATA_DIR, 'accounts.prev.json');
-function accountsBlob() { return JSON.stringify({ version: 1, saved: Date.now(), users: db.users, removedUsers: db.removedUsers || [] }, null, 1); }
-function safeUser(u) {
-  if (!u || !/^[\w-]{1,64}$/.test(String(u.id ?? ''))) return null;
-  const str = (v, n) => (v == null ? null : String(v).replace(/[\u0000-\u001f<>]/g, '').trim().slice(0, n));
-  const num = v => (Number.isFinite(Number(v)) ? Number(v) : undefined);
-  const av = typeof u.avatar_url === 'string' && /^https:\/\/[^\s"'()<>\\]{1,480}$/.test(u.avatar_url) ? u.avatar_url : null;
-  return { id: String(u.id), username: str(u.username, 40), display_name: str(u.display_name, 60), avatar_url: av,
-    badges: Array.isArray(u.badges) ? [...new Set(u.badges)].filter(b => ['owner', 'dev', 'staff'].includes(b)) : [],
-    admin: !!u.admin, firstSeen: num(u.firstSeen), lastLogin: num(u.lastLogin) };
-}
-// Adds accounts we don't have yet. Never edits or removes an existing one. Returns how many were added.
-function mergeAccounts(list, removed = []) {
-  if (!Array.isArray(list)) return 0;
-  const have = new Set(db.users.map(u => u.id)), gone = new Set([...(db.removedUsers || []), ...removed.filter(x => typeof x === 'string')]);
-  let n = 0;
-  for (const raw of list) { const u = safeUser(raw); if (!u || have.has(u.id) || gone.has(u.id)) continue; db.users.push(u); have.add(u.id); n++; }
-  return n;
-}
-function loadAccountFiles() {
-  let n = 0;
-  for (const f of [ACCOUNTS_FILE, ACCOUNTS_PREV]) {
-    try { const d = JSON.parse(fs.readFileSync(f, 'utf8')); n += mergeAccounts(d.users); } catch { /* missing or unreadable */ }
-  }
-  if (n) console.log(`Recovered ${n} account(s) from the accounts backup file.`);
-  return n;
-}
-async function saveAccountFiles() {
-  try { await fsp.copyFile(ACCOUNTS_FILE, ACCOUNTS_PREV); } catch { /* first save */ }
-  const tmp = ACCOUNTS_FILE + '.tmp';
-  await fsp.writeFile(tmp, accountsBlob());
-  await fsp.rename(tmp, ACCOUNTS_FILE);
-}
-async function restoreAccountsFromCloud() {
-  try {
-    const r = await gh('GET', `/contents/accounts.json?ref=${encodeURIComponent(GH_BRANCH)}`, null, true);
-    if (r.ok) { const n = mergeAccounts(JSON.parse(await r.text()).users); if (n) console.log(`Recovered ${n} account(s) from the GitHub backup.`); }
-  } catch { /* the main restore reports GitHub problems */ }
-}
-
 // ---------- data ----------
-let db = { settings: { title: 'Pixel Decorations', subtitle: 'Avatar decorations, made in pixels.' }, items: [], removedSeed: [], photos: [], removedSeedPhotos: [], activePhoto: null, users: [], showcase: [], background: null, removedUsers: [], partners: [] };
+let db = { settings: { title: 'Pixel Decorations', subtitle: 'Avatar decorations, made in pixels.' }, partners: [], items: [], removedSeed: [], photos: [], removedSeedPhotos: [], activePhoto: null, users: [], showcase: [] };
 try { db = { ...db, ...JSON.parse(fs.readFileSync(DB_FILE, 'utf8')) }; } catch { /* first run */ }
 await restoreFromCloud();
+db.partners = db.partners || [];
 db.settings = { title: 'Pixel Decorations', subtitle: '', ...db.settings };
-if (!Array.isArray(db.users)) db.users = [];
-if (!Array.isArray(db.removedUsers)) db.removedUsers = [];
-if (!Array.isArray(db.partners)) db.partners = [];
-loadAccountFiles();
 
 function syncSeed() {
   let manifest = [];
@@ -206,7 +157,6 @@ function saveDb() {
     const tmp = DB_FILE + '.tmp';
     await fsp.writeFile(tmp, JSON.stringify(db));
     await fsp.rename(tmp, DB_FILE);
-    await saveAccountFiles();
     pushDb();
   }).catch(e => console.error('save failed', e));
   return saving;
@@ -214,8 +164,8 @@ function saveDb() {
 await saveDb();
 
 const pub = i => ({ id: i.id, src: i.src, title: i.title, set: i.set });
+const ptView = p => ({ id: p.id, name: p.name, blurb: p.blurb || '', url: p.url || '', kind: p.kind || 'partner', cover: p.file ? '/uploads/' + p.file : null, coverFile: p.file || null, works: (p.works || []).map(w => ({ file: w.file, src: '/uploads/' + w.file })) });
 const photoView = p => ({ id: p.id, src: p.src, seed: !!p.seed, active: p.id === db.activePhoto });
-const bgView = () => db.background ? { src: db.background.src, dim: db.background.dim ?? 55 } : null;
 const activePhotoSrc = () => db.photos.find(p => p.id === db.activePhoto)?.src || null;
 const adminView = i => ({ ...pub(i), hidden: !!i.hidden, seed: !!i.seed });
 
@@ -260,7 +210,7 @@ function sameOrigin(req) {
 const isHttps = req => req.headers['x-forwarded-proto'] === 'https';
 const baseUrl = req => (process.env.PUBLIC_URL || process.env.RENDER_EXTERNAL_URL || `${isHttps(req) ? 'https' : 'http'}://${req.headers.host}`).replace(/\/$/, '');
 const secure = req => (isHttps(req) ? '; Secure' : '');
-const makeUserToken = id => { const p = `${id}.${Date.now() + 365 * 864e5}`; return p + '.' + sign('u:' + p); };
+const makeUserToken = id => { const p = `${id}.${Date.now() + 30 * 864e5}`; return p + '.' + sign('u:' + p); };
 function userFromReq(req) {
   const t = cookies(req).usid; if (!t) return null;
   const i = t.lastIndexOf('.'); if (i < 1) return null;
@@ -395,12 +345,9 @@ async function removeShowcase(id) {
 }
 
 async function api(req, res, p, m) {
-  if (p === '/api/partners' || p.startsWith('/api/partners/')) return partners.api(req, res, p, m);
-  if (p === '/api/items' && m === 'GET') return json(res, 200, { settings: db.settings, photo: activePhotoSrc(), background: bgView(), items: db.items.filter(i => !i.hidden).map(pub) });
-  if (p === '/api/me' && m === 'GET') {
-    const au = userFromReq(req);
-    return json(res, 200, { admin: isAdmin(req), owner: isOwner(req), configured: !!PASSWORD, login: loginOn, user: pubUser(userFromReq(req)) }, au ? { 'Set-Cookie': `usid=${makeUserToken(au.id)}; HttpOnly; SameSite=Lax; Path=/; Max-Age=31536000${secure(req)}` } : {});
-  }
+  if (p === '/api/partners' && m === 'GET') return json(res, 200, { partners: (db.partners || []).map(ptView) });
+  if (p === '/api/items' && m === 'GET') return json(res, 200, { settings: db.settings, photo: activePhotoSrc(), items: db.items.filter(i => !i.hidden).map(pub) });
+  if (p === '/api/me' && m === 'GET') return json(res, 200, { admin: isAdmin(req), owner: isOwner(req), configured: !!PASSWORD, login: loginOn, user: pubUser(userFromReq(req)) });
   if (p === '/api/user/logout' && m === 'POST') {
     if (!sameOrigin(req)) return json(res, 403, { error: 'Bad origin' });
     return json(res, 200, { ok: true }, { 'Set-Cookie': `usid=; HttpOnly; SameSite=Lax; Path=/; Max-Age=0${secure(req)}` });
@@ -459,7 +406,7 @@ async function api(req, res, p, m) {
   if (!isAdmin(req)) return json(res, 401, { error: 'Login required' });
   if (m !== 'GET' && !sameOrigin(req)) return json(res, 403, { error: 'Bad origin' });
 
-  if (p === '/api/admin/items' && m === 'GET') return json(res, 200, { settings: db.settings, background: bgView(), items: db.items.map(adminView) });
+  if (p === '/api/admin/items' && m === 'GET') return json(res, 200, { settings: db.settings, items: db.items.map(adminView) });
 
   if (p === '/api/settings' && m === 'PUT') {
     const b = await readJson(req);
@@ -494,46 +441,6 @@ async function api(req, res, p, m) {
     return json(res, 200, { added: added.map(adminView), rejected });
   }
 
-  if (p === '/api/background' && m === 'POST') {
-    const bm = /boundary=(?:"([^"]+)"|([^;]+))/i.exec(req.headers['content-type'] || '');
-    if (!bm) return json(res, 400, { error: 'Expected multipart upload' });
-    const f = parseMultipart(await readBody(req, MAX_BODY), bm[1] || bm[2]).find(x => x.name === 'file' && x.filename);
-    if (!f) return json(res, 400, { error: 'No file received' });
-    const ext = imageExt(f.body);
-    if (!ext) return json(res, 400, { error: 'That is not a JPG, PNG, WebP or GIF image.' });
-    if (f.body.length > MAX_FILE) return json(res, 400, { error: 'That file is over 10 MB.' });
-    const id = crypto.randomBytes(6).toString('hex'), file = `bg_${id}.${ext}`, old = db.background;
-    await fsp.writeFile(path.join(UPLOAD_DIR, file), f.body);
-    ghTask(() => ghPut('uploads/' + file, f.body));
-    if (old) { try { await fsp.unlink(path.join(UPLOAD_DIR, path.basename(old.file))); } catch { /* gone */ } ghTask(() => ghDel('uploads/' + path.basename(old.file))); }
-    db.background = { file, src: '/uploads/' + file, dim: old?.dim ?? 55 };
-    await saveDb(); return json(res, 200, bgView());
-  }
-  if (p === '/api/background' && m === 'PATCH') {
-    if (!db.background) return json(res, 404, { error: 'No background set.' });
-    const b = await readJson(req), dim = Math.round(Number(b.dim));
-    if (!Number.isFinite(dim)) return json(res, 400, { error: 'Dim must be a number.' });
-    db.background.dim = Math.min(90, Math.max(0, dim));
-    await saveDb(); return json(res, 200, bgView());
-  }
-  if (p === '/api/background' && m === 'DELETE') {
-    const old = db.background;
-    if (old) { try { await fsp.unlink(path.join(UPLOAD_DIR, path.basename(old.file))); } catch { /* gone */ } ghTask(() => ghDel('uploads/' + path.basename(old.file))); }
-    db.background = null; await saveDb(); return json(res, 200, { ok: true });
-  }
-  if (p === '/api/admin/accounts.json' && m === 'GET') {
-    if (!isOwner(req)) return json(res, 403, { error: 'Only the main admin (password login) can download accounts.' });
-    return send(res, 200, accountsBlob(), { 'Content-Type': 'application/json; charset=utf-8', 'Content-Disposition': 'attachment; filename="accounts.json"', 'Cache-Control': 'no-store' });
-  }
-  if (p === '/api/admin/accounts/import' && m === 'POST') {
-    if (!isOwner(req)) return json(res, 403, { error: 'Only the main admin (password login) can restore accounts.' });
-    const b = await readJson(req);
-    if (!Array.isArray(b.users)) return json(res, 400, { error: 'That file does not look like an accounts download.' });
-    const ids = new Set(b.users.map(u => String(u?.id ?? '')));
-    db.removedUsers = (db.removedUsers || []).filter(id => !ids.has(id)); // restoring someone brings them back on purpose
-    const added = mergeAccounts(b.users);
-    await saveDb(); return json(res, 200, { added, total: db.users.length });
-  }
   if (p === '/api/admin/photos' && m === 'GET') return json(res, 200, { photos: db.photos.map(photoView) });
   if (p === '/api/photos' && m === 'POST') {
     const bm = /boundary=(?:"([^"]+)"|([^;]+))/i.exec(req.headers['content-type'] || '');
@@ -556,7 +463,7 @@ async function api(req, res, p, m) {
     return json(res, 200, { added: added.map(photoView), rejected });
   }
   if (p === '/api/admin/users' && m === 'GET')
-    return json(res, 200, { login: loginOn, redirectUrl: baseUrl(req) + CB_PATH, yapin: YAPIN, hasId: !!Y_ID, hasSecret: !!Y_SECRET, lastError: loginDiag.error, lastErrorAt: loginDiag.at, owner: isOwner(req), cloud: ghOn, badgeList: BADGES, users: [...db.users].sort((a, b) => (b.lastLogin || 0) - (a.lastLogin || 0)).map(u => ({ ...pubUser(u), admin: !!u.admin, firstSeen: u.firstSeen, lastLogin: u.lastLogin })) });
+    return json(res, 200, { login: loginOn, redirectUrl: baseUrl(req) + CB_PATH, yapin: YAPIN, hasId: !!Y_ID, hasSecret: !!Y_SECRET, lastError: loginDiag.error, lastErrorAt: loginDiag.at, owner: isOwner(req), badgeList: BADGES, users: [...db.users].sort((a, b) => (b.lastLogin || 0) - (a.lastLogin || 0)).map(u => ({ ...pubUser(u), admin: !!u.admin, firstSeen: u.firstSeen, lastLogin: u.lastLogin })) });
   if (p === '/api/admin/showcase' && m === 'GET') return json(res, 200, { auto: !!db.settings.showcaseAuto, items: db.showcase.map(x => scView(x, null)) });
   let am;
   if ((am = /^\/api\/admin\/users\/([\w-]{1,64})\/badges$/.exec(p)) && m === 'PUT') {
@@ -583,8 +490,79 @@ async function api(req, res, p, m) {
     return json(res, 200, { uptime: Math.round(process.uptime()), node: process.version, rssMB: Math.round(process.memoryUsage().rss / 1048576), keep });
   let um;
   if ((um = /^\/api\/users\/([\w-]+)$/.exec(p)) && m === 'DELETE') {
-    db.users = db.users.filter(u => u.id !== um[1]); (db.removedUsers ||= []).includes(um[1]) || db.removedUsers.push(um[1]); await saveDb(); return json(res, 200, { ok: true });
+    db.users = db.users.filter(u => u.id !== um[1]); await saveDb(); return json(res, 200, { ok: true });
   }
+  // ----- partners (admin) -----
+  const readForm = async () => {
+    const bm = /boundary=(?:"([^"]+)"|([^;]+))/i.exec(req.headers['content-type'] || '');
+    if (!bm) throw new Error('Expected a form upload');
+    const f = {}, files = [];
+    for (const x of parseMultipart(await readBody(req, MAX_BODY), bm[1] || bm[2])) { if (x.filename) files.push(x); else if (x.name) f[x.name] = x.body.toString('utf8'); }
+    return { f, files };
+  };
+  const saveImg = async x => {
+    const ext = imageExt(x.body);
+    if (!ext) throw new Error((x.filename || 'A file') + ' is not an image (use GIF, PNG, WebP or JPG).');
+    if (x.body.length > MAX_FILE) throw new Error((x.filename || 'A file') + ' is over 10 MB.');
+    const file = `pt_${crypto.randomBytes(6).toString('hex')}.${ext}`;
+    await fsp.writeFile(path.join(UPLOAD_DIR, file), x.body);
+    ghTask(() => ghPut('uploads/' + file, x.body));
+    return file;
+  };
+  const dropImg = async file => { try { await fsp.unlink(path.join(UPLOAD_DIR, path.basename(file))); } catch { /* gone */ } ghTask(() => ghDel('uploads/' + path.basename(file))); };
+  const ptFields = f => {
+    const name = clean(f.name, 60); if (!name) throw new Error('Give the partner a name.');
+    const url = cleanUrl(f.url); if (String(f.url || '').trim() && !url) throw new Error('The link must be a full https:// address.');
+    return { name, url, blurb: clean(f.blurb, 400), kind: Object.hasOwn(PARTNER_KINDS, f.kind) ? f.kind : 'partner' };
+  };
+  if (p === '/api/partners' && m === 'POST') {
+    let made = [];
+    try {
+      const { f, files } = await readForm(); const fields = ptFields(f);
+      const cover = files.find(x => x.name === 'cover'), works = files.filter(x => x.name === 'works').slice(0, 4);
+      const entry = { id: 'pt-' + crypto.randomBytes(5).toString('hex'), ...fields, file: null, works: [] };
+      if (cover) { entry.file = await saveImg(cover); made.push(entry.file); }
+      for (const w of works) { const file = await saveImg(w); made.push(file); entry.works.push({ file }); }
+      db.partners.push(entry); await saveDb();
+      return json(res, 200, ptView(entry));
+    } catch (e) { for (const f of made) await dropImg(f); return json(res, 400, { error: e.message }); }
+  }
+  let pt;
+  if ((pt = /^\/api\/partners\/([\w-]+)(?:\/(images|move))?(?:\/([\w.-]+))?$/.exec(p))) {
+    const i = db.partners.findIndex(x => x.id === pt[1]); const part = db.partners[i];
+    if (!part) return json(res, 404, { error: 'Not found' });
+    if (!pt[2] && m === 'PUT') {
+      try { Object.assign(part, ptFields(await readJson(req))); } catch (e) { return json(res, 400, { error: e.message }); }
+      await saveDb(); return json(res, 200, ptView(part));
+    }
+    if (!pt[2] && m === 'DELETE') {
+      for (const f of ptImgs(part)) await dropImg(f);
+      db.partners.splice(i, 1); await saveDb(); return json(res, 200, { ok: true });
+    }
+    if (pt[2] === 'move' && m === 'POST') {
+      const j = i + ((await readJson(req)).dir < 0 ? -1 : 1);
+      if (j >= 0 && j < db.partners.length) { [db.partners[i], db.partners[j]] = [db.partners[j], db.partners[i]]; await saveDb(); }
+      return json(res, 200, { ok: true });
+    }
+    if (pt[2] === 'images' && m === 'POST') {
+      const made = [];
+      try {
+        const { files } = await readForm();
+        const cover = files.find(x => x.name === 'cover'), works = files.filter(x => x.name === 'works');
+        if ((part.works || []).length + works.length > 4) throw new Error('A partner can show up to 4 work images. Remove one first.');
+        if (cover) { const file = await saveImg(cover); made.push(file); if (part.file) await dropImg(part.file); part.file = file; }
+        for (const w of works) { const file = await saveImg(w); made.push(file); (part.works ||= []).push({ file }); }
+        await saveDb(); return json(res, 200, ptView(part));
+      } catch (e) { return json(res, 400, { error: e.message }); }
+    }
+    if (pt[2] === 'images' && pt[3] && m === 'DELETE') {
+      if (part.file === pt[3]) part.file = null;
+      else if ((part.works || []).some(w => w.file === pt[3])) part.works = part.works.filter(w => w.file !== pt[3]);
+      else return json(res, 404, { error: 'Not found' });
+      await dropImg(pt[3]); await saveDb(); return json(res, 200, ptView(part));
+    }
+  }
+
   let pm;
   if ((pm = /^\/api\/photos\/([\w-]+)$/.exec(p))) {
     const ph = db.photos.find(x => x.id === pm[1]);
@@ -629,7 +607,7 @@ async function api(req, res, p, m) {
 
   if (p === '/api/backup.zip' && m === 'GET') {
     const entries = [{ name: 'items.json', data: Buffer.from(JSON.stringify(db, null, 1)) }];
-    for (const i of [...db.items, ...db.photos, ...db.showcase, ...partnerFileObjs(), ...(db.background ? [db.background] : [])]) if (!i.seed) { try { entries.push({ name: 'uploads/' + i.file, data: await fsp.readFile(path.join(UPLOAD_DIR, i.file)) }); } catch { /* missing file */ } }
+    for (const i of allUploads()) if (!i.seed) { try { entries.push({ name: 'uploads/' + i.file, data: await fsp.readFile(path.join(UPLOAD_DIR, i.file)) }); } catch { /* missing file */ } }
     return send(res, 200, buildZip(entries), { 'Content-Type': 'application/zip', 'Content-Disposition': 'attachment; filename="gallery-backup.zip"', 'Cache-Control': 'no-store' });
   }
   return json(res, 404, { error: 'Not found' });
@@ -680,16 +658,10 @@ async function finishLogin(req, res, url) {
     if (!u) { u = { id, firstSeen: Date.now() }; db.users.push(u); }
     Object.assign(u, { username: clean(me.username, 40), display_name: me.display_name ? clean(me.display_name, 60) : null, avatar_url: okUrl(me.avatar_url), lastLogin: Date.now() });
     await saveDb();
-    res.writeHead(302, { Location: cookies(req).oauth_next === 'admin' ? '/admin' : '/?login=ok', 'Set-Cookie': [`usid=${makeUserToken(id)}; HttpOnly; SameSite=Lax; Path=/; Max-Age=31536000${secure(req)}`, stateCookie('', req, 0)], 'Cache-Control': 'no-store', ...SEC });
+    res.writeHead(302, { Location: cookies(req).oauth_next === 'admin' ? '/admin' : '/?login=ok', 'Set-Cookie': [`usid=${makeUserToken(id)}; HttpOnly; SameSite=Lax; Path=/; Max-Age=2592000${secure(req)}`, stateCookie('', req, 0)], 'Cache-Control': 'no-store', ...SEC });
     res.end();
   } catch (e) { loginFail(e.name === 'TimeoutError' ? `Could not reach ${YAPIN} (timed out). Check YAPIN_BASE.` : String(e.message || e)); back('failed'); }
 }
-
-// ---------- partners page (admin-only editing) ----------
-const partners = createPartners({
-  getDb: () => db, saveDb, UPLOAD_DIR, ghTask, ghPut, ghDel, parseMultipart, imageExt, readBody,
-  json, clean, cleanUrl, isAdmin, sameOrigin, MAX_FILE, MAX_BODY
-});
 
 // ---------- server ----------
 async function handle(req, res) {
@@ -702,7 +674,7 @@ async function handle(req, res) {
   if (p === '/') return serveStatic(req, res, PUBLIC_DIR, 'index.html', 'no-cache');
   if (p === '/admin') return serveStatic(req, res, PUBLIC_DIR, 'admin.html', 'no-cache');
   if (p === '/partners') return serveStatic(req, res, PUBLIC_DIR, 'partners.html', 'no-cache');
-  if (p === '/admin/partners') return serveStatic(req, res, PUBLIC_DIR, 'partners-admin.html', 'no-cache');
+  if (p === '/signin') return serveStatic(req, res, PUBLIC_DIR, 'signin.html', 'no-cache');
   if (p.startsWith('/seed/')) return serveStatic(req, res, SEED_DIR, p.slice(6), 'public, max-age=86400');
   if (p.startsWith('/uploads/')) return serveStatic(req, res, UPLOAD_DIR, p.slice(9), 'public, max-age=86400');
   return serveStatic(req, res, PUBLIC_DIR, p.slice(1), 'no-cache');
