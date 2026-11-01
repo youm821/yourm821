@@ -182,7 +182,8 @@ function cookies(req) {
   }
   return out;
 }
-const isAdmin = req => !!PASSWORD && checkToken(cookies(req).sid);
+const isOwner = req => !!PASSWORD && checkToken(cookies(req).sid); // logged in with the admin password
+const isAdmin = req => isOwner(req) || !!userFromReq(req)?.admin; // owner, or a Yapin' account the owner made an admin
 function passwordOk(input) {
   const a = crypto.createHash('sha256').update(String(input)).digest();
   const b = crypto.createHash('sha256').update(PASSWORD).digest();
@@ -337,7 +338,7 @@ async function removeShowcase(id) {
 
 async function api(req, res, p, m) {
   if (p === '/api/items' && m === 'GET') return json(res, 200, { settings: db.settings, photo: activePhotoSrc(), items: db.items.filter(i => !i.hidden).map(pub) });
-  if (p === '/api/me' && m === 'GET') return json(res, 200, { admin: isAdmin(req), configured: !!PASSWORD, login: loginOn, user: pubUser(userFromReq(req)) });
+  if (p === '/api/me' && m === 'GET') return json(res, 200, { admin: isAdmin(req), owner: isOwner(req), configured: !!PASSWORD, login: loginOn, user: pubUser(userFromReq(req)) });
   if (p === '/api/user/logout' && m === 'POST') {
     if (!sameOrigin(req)) return json(res, 403, { error: 'Bad origin' });
     return json(res, 200, { ok: true }, { 'Set-Cookie': `usid=; HttpOnly; SameSite=Lax; Path=/; Max-Age=0${secure(req)}` });
@@ -354,7 +355,7 @@ async function api(req, res, p, m) {
     return json(res, 200, { ok: true }, { 'Set-Cookie': `sid=${makeToken()}; HttpOnly; SameSite=Strict; Path=/; Max-Age=604800${isHttps(req) ? '; Secure' : ''}` });
   }
   if (p === '/api/logout' && m === 'POST')
-    return json(res, 200, { ok: true }, { 'Set-Cookie': 'sid=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0' });
+    return json(res, 200, { ok: true }, { 'Set-Cookie': ['sid=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0', `usid=; HttpOnly; SameSite=Lax; Path=/; Max-Age=0${secure(req)}`] });
 
   if (p === '/api/showcase' && m === 'GET') {
     const me = userFromReq(req);
@@ -451,9 +452,16 @@ async function api(req, res, p, m) {
     return json(res, 200, { added: added.map(photoView), rejected });
   }
   if (p === '/api/admin/users' && m === 'GET')
-    return json(res, 200, { login: loginOn, redirectUrl: baseUrl(req) + CB_PATH, yapin: YAPIN, hasId: !!Y_ID, hasSecret: !!Y_SECRET, lastError: loginDiag.error, lastErrorAt: loginDiag.at, users: [...db.users].sort((a, b) => (b.lastLogin || 0) - (a.lastLogin || 0)).map(u => ({ ...pubUser(u), firstSeen: u.firstSeen, lastLogin: u.lastLogin })) });
+    return json(res, 200, { login: loginOn, redirectUrl: baseUrl(req) + CB_PATH, yapin: YAPIN, hasId: !!Y_ID, hasSecret: !!Y_SECRET, lastError: loginDiag.error, lastErrorAt: loginDiag.at, owner: isOwner(req), users: [...db.users].sort((a, b) => (b.lastLogin || 0) - (a.lastLogin || 0)).map(u => ({ ...pubUser(u), admin: !!u.admin, firstSeen: u.firstSeen, lastLogin: u.lastLogin })) });
   if (p === '/api/admin/showcase' && m === 'GET') return json(res, 200, { auto: !!db.settings.showcaseAuto, items: db.showcase.map(x => scView(x, null)) });
   let am;
+  if ((am = /^\/api\/admin\/users\/([\w-]{1,64})\/admin$/.exec(p)) && m === 'PUT') {
+    if (!isOwner(req)) return json(res, 403, { error: 'Only the main admin (password login) can make or remove admins.' });
+    const u = db.users.find(x => x.id === am[1]); if (!u) return json(res, 404, { error: 'Not found' });
+    const b = await readJson(req); u.admin = !!b.admin;
+    await saveDb();
+    return json(res, 200, { ok: true, admin: u.admin });
+  }
   if ((am = /^\/api\/admin\/showcase\/([\w-]+)$/.exec(p))) {
     const x = db.showcase.find(i => i.id === am[1]);
     if (!x) return json(res, 404, { error: 'Not found' });
@@ -528,10 +536,11 @@ async function removeItems(ids) {
 // ---------- Login with Yapin' ----------
 const stateCookie = (v, req, age) => `oauth_state=${v}; HttpOnly; SameSite=Lax; Path=/; Max-Age=${age}${secure(req)}`; // Lax: the return trip from Yapin' is a cross-site redirect
 function startLogin(req, res) {
+  const next = new URL(req.url, 'http://x').searchParams.get('next') === 'admin' ? 'admin' : '';
   if (!loginOn) return send(res, 503, 'Login with Yapin\u2019 is not set up on this server yet.');
   const state = crypto.randomBytes(16).toString('hex');
   const q = new URLSearchParams({ client_id: Y_ID, redirect_uri: baseUrl(req) + CB_PATH, response_type: 'code', scope: 'identify', state });
-  res.writeHead(302, { Location: `${YAPIN}/oauth/authorize?${q}`, 'Set-Cookie': stateCookie(state, req, 600), 'Cache-Control': 'no-store', ...SEC });
+  res.writeHead(302, { Location: `${YAPIN}/oauth/authorize?${q}`, 'Set-Cookie': [stateCookie(state, req, 600), `oauth_next=${next}; HttpOnly; SameSite=Lax; Path=/; Max-Age=600${secure(req)}`], 'Cache-Control': 'no-store', ...SEC });
   res.end();
 }
 const loginDiag = { at: null, error: null };
@@ -560,7 +569,7 @@ async function finishLogin(req, res, url) {
     if (!u) { u = { id, firstSeen: Date.now() }; db.users.push(u); }
     Object.assign(u, { username: clean(me.username, 40), display_name: me.display_name ? clean(me.display_name, 60) : null, avatar_url: okUrl(me.avatar_url), lastLogin: Date.now() });
     await saveDb();
-    res.writeHead(302, { Location: '/?login=ok', 'Set-Cookie': [`usid=${makeUserToken(id)}; HttpOnly; SameSite=Lax; Path=/; Max-Age=2592000${secure(req)}`, stateCookie('', req, 0)], 'Cache-Control': 'no-store', ...SEC });
+    res.writeHead(302, { Location: cookies(req).oauth_next === 'admin' ? '/admin' : '/?login=ok', 'Set-Cookie': [`usid=${makeUserToken(id)}; HttpOnly; SameSite=Lax; Path=/; Max-Age=2592000${secure(req)}`, stateCookie('', req, 0)], 'Cache-Control': 'no-store', ...SEC });
     res.end();
   } catch (e) { loginFail(e.name === 'TimeoutError' ? `Could not reach ${YAPIN} (timed out). Check YAPIN_BASE.` : String(e.message || e)); back('failed'); }
 }

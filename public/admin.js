@@ -16,6 +16,7 @@ const say = (id, text, kind) => { const m = $(id); m.textContent = text || ''; m
 function showLogin() { $('#app').hidden = true; $('#login').hidden = false; $('#pw').focus(); }
 async function boot() {
   const me = await (await fetch('/api/me', { credentials: 'same-origin' })).json();
+  $('#ylogin').hidden = !me.login;
   if (!me.admin) { showLogin(); if (!me.configured) say('#lmsg', 'ADMIN_PASSWORD is not set on the server yet.', 'err'); return; }
   $('#login').hidden = true; $('#app').hidden = false;
   await refresh();
@@ -184,12 +185,22 @@ async function loadUsers() {
   const d = await api('GET', '/api/admin/users'); const box = $('#users'); box.replaceChildren();
   $('#u-n').textContent = '(' + d.users.length + ')';
   $('#u-info').textContent = d.login ? 'Login with Yapin\u2019 is on. Everyone who logged in appears here.' : 'Login with Yapin\u2019 is off. Set YAPPER_CLIENT_ID and YAPPER_CLIENT_SECRET on the server (see the README).';
+  const info = $('#u-info');
+  info.append(el('br'), 'Redirect URL to register in Yapin\u2019 (must match exactly): ', el('b', '', d.redirectUrl));
+  info.append(el('br'), 'Client ID: ' + (d.hasId ? 'set' : 'MISSING') + ' \u00b7 Client secret: ' + (d.hasSecret ? 'set' : 'MISSING') + ' \u00b7 Yapin\u2019 address: ' + d.yapin);
+  if (d.lastError) info.append(el('br'), el('b', '', 'Last login problem' + (d.lastErrorAt ? ' (' + new Date(d.lastErrorAt).toLocaleString() + ')' : '') + ': '), d.lastError);
   if (!d.users.length) box.append(el('div', 'empty', 'Nobody has logged in yet.'));
   for (const u of d.users) {
     const c = el('div', 'u'); const name = u.display_name || u.username || u.id;
     if (u.avatar_url) { const im = el('img'); im.src = u.avatar_url; im.alt = ''; im.referrerPolicy = 'no-referrer'; c.append(im); } else c.append(el('div', 'ini', name.slice(0, 1).toUpperCase()));
     const t = el('div', 't'); t.append(el('b', '', name), el('span', '', (u.username ? '@' + u.username + ' · ' : '') + (u.lastLogin ? new Date(u.lastLogin).toLocaleDateString() : ''))); c.append(t);
     const rm = el('button', 'btn danger sm', 'Remove'); rm.onclick = async () => { if (!confirm('Remove ' + name + '? They can log in again.')) return; await api('DELETE', '/api/users/' + encodeURIComponent(u.id)); loadUsers(); };
+    if (d.owner) {
+      const ad = el('button', 'btn ghost sm', u.admin ? 'Remove admin' : 'Make admin');
+      ad.onclick = async () => { if (!confirm((u.admin ? 'Remove admin from ' : 'Give admin to ') + name + '?' + (u.admin ? '' : ' They will be able to change everything on the site except adding other admins.'))) return; await api('PUT', '/api/admin/users/' + encodeURIComponent(u.id) + '/admin', { admin: !u.admin }); loadUsers(); };
+      c.append(ad);
+    }
+    if (u.admin) t.append(el('span', '', ' \u00b7 admin'));
     c.append(rm); box.append(c);
   }
 }
