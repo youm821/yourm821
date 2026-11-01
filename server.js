@@ -16,6 +16,10 @@ const DB_FILE = path.join(DATA_DIR, 'items.json');
 const PUBLIC_DIR = path.join(ROOT, 'public');
 const SEED_DIR = path.join(ROOT, 'seed');
 const SECRET = process.env.SESSION_SECRET || crypto.createHash('sha256').update('gallery:' + PASSWORD).digest('hex');
+const YAPIN = (process.env.YAPIN_BASE || 'https://www.yapin.gg').replace(/\/$/, '');
+const Y_ID = process.env.YAPPER_CLIENT_ID || '';
+const Y_SECRET = process.env.YAPPER_CLIENT_SECRET || '';
+const loginOn = !!(Y_ID && Y_SECRET);
 const MAX_FILE = 10 * 1024 * 1024;
 const MAX_BODY = 80 * 1024 * 1024;
 
@@ -89,7 +93,7 @@ async function restoreFromCloud(force = false) {
     if (!r.ok) throw new Error('GitHub answered ' + r.status);
     const remote = JSON.parse(await r.text());
     db = { ...db, ...remote };
-    for (const i of [...db.items, ...db.photos].filter(x => !x.seed)) {
+    for (const i of [...db.items, ...db.photos, ...db.showcase].filter(x => !x.seed)) {
       const fp = path.join(UPLOAD_DIR, path.basename(i.file));
       if (fs.existsSync(fp)) continue;
       const f = await gh('GET', `/contents/${enc('uploads/' + path.basename(i.file))}?ref=${encodeURIComponent(GH_BRANCH)}`, null, true);
@@ -104,13 +108,13 @@ async function restoreFromCloud(force = false) {
 }
 function syncEverything() {
   pushDb();
-  for (const i of [...db.items, ...db.photos].filter(x => !x.seed)) {
+  for (const i of [...db.items, ...db.photos, ...db.showcase].filter(x => !x.seed)) {
     ghTask(async () => { try { await ghPut('uploads/' + i.file, await fsp.readFile(path.join(UPLOAD_DIR, i.file))); } catch (e) { if (e.code !== 'ENOENT') throw e; } });
   }
 }
 
 // ---------- data ----------
-let db = { settings: { title: 'Pixel Decorations', subtitle: 'Avatar decorations, made in pixels.' }, items: [], removedSeed: [], photos: [], removedSeedPhotos: [], activePhoto: null };
+let db = { settings: { title: 'Pixel Decorations', subtitle: 'Avatar decorations, made in pixels.' }, items: [], removedSeed: [], photos: [], removedSeedPhotos: [], activePhoto: null, users: [], showcase: [] };
 try { db = { ...db, ...JSON.parse(fs.readFileSync(DB_FILE, 'utf8')) }; } catch { /* first run */ }
 await restoreFromCloud();
 db.settings = { title: 'Pixel Decorations', subtitle: '', ...db.settings };
@@ -197,13 +201,28 @@ function sameOrigin(req) {
   try { return new URL(o).host === req.headers.host; } catch { return false; }
 }
 const isHttps = req => req.headers['x-forwarded-proto'] === 'https';
+const baseUrl = req => (process.env.PUBLIC_URL || process.env.RENDER_EXTERNAL_URL || `${isHttps(req) ? 'https' : 'http'}://${req.headers.host}`).replace(/\/$/, '');
+const secure = req => (isHttps(req) ? '; Secure' : '');
+const makeUserToken = id => { const p = `${id}.${Date.now() + 30 * 864e5}`; return p + '.' + sign('u:' + p); };
+function userFromReq(req) {
+  const t = cookies(req).usid; if (!t) return null;
+  const i = t.lastIndexOf('.'); if (i < 1) return null;
+  const p = t.slice(0, i), a = Buffer.from(t.slice(i + 1)), b = Buffer.from(sign('u:' + p));
+  if (a.length !== b.length || !crypto.timingSafeEqual(a, b)) return null;
+  const j = p.lastIndexOf('.');
+  if (!(Number(p.slice(j + 1)) > Date.now())) return null;
+  const id = p.slice(0, j);
+  return db.users.find(u => u.id === id) || null;
+}
+const pubUser = u => (u ? { id: u.id, username: u.username, display_name: u.display_name, avatar_url: u.avatar_url } : null);
+const okUrl = u => (typeof u === 'string' && /^https:\/\/[^\s"'()<>\\]{1,480}$/.test(u) ? u : null);
 
 // ---------- http helpers ----------
 const SEC = {
   'X-Content-Type-Options': 'nosniff',
   'Referrer-Policy': 'same-origin',
   'X-Frame-Options': 'DENY',
-  'Content-Security-Policy': "default-src 'self'; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; script-src 'self'; frame-ancestors 'none'"
+  'Content-Security-Policy': "default-src 'self'; img-src 'self' data: blob: https:; style-src 'self' 'unsafe-inline'; script-src 'self'; frame-ancestors 'none'"
 };
 function send(res, status, body, headers = {}) {
   const buf = Buffer.isBuffer(body) ? body : Buffer.from(String(body));
@@ -302,9 +321,26 @@ function buildZip(entries) {
 const clean = (s, max) => String(s ?? '').replace(/[\u0000-\u001f<>]/g, '').trim().slice(0, max);
 const titleFrom = name => clean(name.replace(/\.[^.]+$/, '').replace(/[_-]+/g, ' '), 80) || 'Untitled';
 
+function dims(buf, ext) {
+  try { if (ext === 'gif') return [buf.readUInt16LE(6), buf.readUInt16LE(8)]; if (ext === 'png') return [buf.readUInt32BE(16), buf.readUInt32BE(20)]; } catch { /* short file */ }
+  return null;
+}
+const userBy = id => { const u = db.users.find(x => x.id === id); return u ? { name: u.display_name || u.username || 'Someone', username: u.username, avatar_url: u.avatar_url } : null; };
+const scView = (x, me) => ({ id: x.id, src: x.src, title: x.title, status: x.status, mine: !!(me && x.ownerId === me.id), by: userBy(x.ownerId) || { name: x.ownerName || 'Someone', username: null, avatar_url: null } });
+async function removeShowcase(id) {
+  const x = db.showcase.find(i => i.id === id); if (!x) return;
+  try { await fsp.unlink(path.join(UPLOAD_DIR, path.basename(x.file))); } catch { /* gone */ }
+  ghTask(() => ghDel('uploads/' + path.basename(x.file)));
+  db.showcase = db.showcase.filter(i => i.id !== id); await saveDb();
+}
+
 async function api(req, res, p, m) {
   if (p === '/api/items' && m === 'GET') return json(res, 200, { settings: db.settings, photo: activePhotoSrc(), items: db.items.filter(i => !i.hidden).map(pub) });
-  if (p === '/api/me' && m === 'GET') return json(res, 200, { admin: isAdmin(req), configured: !!PASSWORD });
+  if (p === '/api/me' && m === 'GET') return json(res, 200, { admin: isAdmin(req), configured: !!PASSWORD, login: loginOn, user: pubUser(userFromReq(req)) });
+  if (p === '/api/user/logout' && m === 'POST') {
+    if (!sameOrigin(req)) return json(res, 403, { error: 'Bad origin' });
+    return json(res, 200, { ok: true }, { 'Set-Cookie': `usid=; HttpOnly; SameSite=Lax; Path=/; Max-Age=0${secure(req)}` });
+  }
 
   if (p === '/api/login' && m === 'POST') {
     if (!PASSWORD) return json(res, 503, { error: 'ADMIN_PASSWORD is not set on the server.' });
@@ -319,6 +355,43 @@ async function api(req, res, p, m) {
   if (p === '/api/logout' && m === 'POST')
     return json(res, 200, { ok: true }, { 'Set-Cookie': 'sid=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0' });
 
+  if (p === '/api/showcase' && m === 'GET') {
+    const me = userFromReq(req);
+    return json(res, 200, { enabled: loginOn, auto: !!db.settings.showcaseAuto, items: db.showcase.filter(x => x.status === 'approved' || (me && x.ownerId === me.id)).map(x => scView(x, me)) });
+  }
+  if (p === '/api/showcase' && m === 'POST') {
+    const me = userFromReq(req);
+    if (!me) return json(res, 401, { error: 'Log in with Yapin\u2019 first.' });
+    if (!sameOrigin(req)) return json(res, 403, { error: 'Bad origin' });
+    const mine = db.showcase.filter(x => x.ownerId === me.id);
+    if (mine.length >= 12) return json(res, 400, { error: 'You can have up to 12 works up at once. Delete one first.' });
+    if (mine.filter(x => Date.now() - x.created < 3600e3).length >= 5) return json(res, 429, { error: 'Slow down. Try again in a little while.' });
+    const bm = /boundary=(?:"([^"]+)"|([^;]+))/i.exec(req.headers['content-type'] || '');
+    if (!bm) return json(res, 400, { error: 'Expected an upload' });
+    const parts = parseMultipart(await readBody(req, 6 * 1024 * 1024), bm[1] || bm[2]);
+    const f = parts.find(x => x.name === 'file' && x.filename);
+    if (!f) return json(res, 400, { error: 'Choose a file first.' });
+    const ext = imageExt(f.body);
+    if (!ext || ext === 'jpg') return json(res, 400, { error: 'GIF, PNG or WebP only.' });
+    if (f.body.length > 5 * 1024 * 1024) return json(res, 400, { error: 'That file is over 5 MB.' });
+    const d = dims(f.body, ext);
+    if (d && (d[0] > 1024 || d[1] > 1024 || d[0] < 16 || d[1] < 16)) return json(res, 400, { error: 'Keep it between 16 and 1024 pixels on each side.' });
+    const id = crypto.randomBytes(6).toString('hex'), file = `sc_${id}.${ext}`;
+    await fsp.writeFile(path.join(UPLOAD_DIR, file), f.body);
+    ghTask(() => ghPut('uploads/' + file, f.body));
+    const title = clean(parts.find(x => x.name === 'title' && x.filename === undefined)?.body.toString('utf8'), 60) || titleFrom(f.filename);
+    const entry = { id: 'sc-' + id, src: '/uploads/' + file, file, title, ownerId: me.id, ownerName: me.display_name || me.username || '', status: db.settings.showcaseAuto ? 'approved' : 'pending', created: Date.now() };
+    db.showcase.unshift(entry); await saveDb();
+    return json(res, 200, scView(entry, me));
+  }
+  let sm;
+  if ((sm = /^\/api\/showcase\/([\w-]+)$/.exec(p)) && m === 'DELETE') {
+    const me = userFromReq(req), x = db.showcase.find(i => i.id === sm[1]);
+    if (!me || !x || x.ownerId !== me.id) return json(res, 404, { error: 'Not found' });
+    if (!sameOrigin(req)) return json(res, 403, { error: 'Bad origin' });
+    await removeShowcase(x.id); return json(res, 200, { ok: true });
+  }
+
   if (!isAdmin(req)) return json(res, 401, { error: 'Login required' });
   if (m !== 'GET' && !sameOrigin(req)) return json(res, 403, { error: 'Bad origin' });
 
@@ -326,7 +399,7 @@ async function api(req, res, p, m) {
 
   if (p === '/api/settings' && m === 'PUT') {
     const b = await readJson(req);
-    db.settings = { title: clean(b.title, 60) || 'Pixel Decorations', subtitle: clean(b.subtitle, 160) };
+    db.settings = { title: clean(b.title, 60) || 'Pixel Decorations', subtitle: clean(b.subtitle, 160), showcaseAuto: !!b.showcaseAuto };
     await saveDb(); return json(res, 200, db.settings);
   }
 
@@ -376,6 +449,22 @@ async function api(req, res, p, m) {
     await saveDb();
     return json(res, 200, { added: added.map(photoView), rejected });
   }
+  if (p === '/api/admin/users' && m === 'GET')
+    return json(res, 200, { login: loginOn, users: [...db.users].sort((a, b) => (b.lastLogin || 0) - (a.lastLogin || 0)).map(u => ({ ...pubUser(u), firstSeen: u.firstSeen, lastLogin: u.lastLogin })) });
+  if (p === '/api/admin/showcase' && m === 'GET') return json(res, 200, { auto: !!db.settings.showcaseAuto, items: db.showcase.map(x => scView(x, null)) });
+  let am;
+  if ((am = /^\/api\/admin\/showcase\/([\w-]+)$/.exec(p))) {
+    const x = db.showcase.find(i => i.id === am[1]);
+    if (!x) return json(res, 404, { error: 'Not found' });
+    if (m === 'PATCH') { const b = await readJson(req); if (b.status === 'approved' || b.status === 'pending') x.status = b.status; await saveDb(); return json(res, 200, scView(x, null)); }
+    if (m === 'DELETE') { await removeShowcase(x.id); return json(res, 200, { ok: true }); }
+  }
+  if (p === '/api/status' && m === 'GET')
+    return json(res, 200, { uptime: Math.round(process.uptime()), node: process.version, rssMB: Math.round(process.memoryUsage().rss / 1048576), keep });
+  let um;
+  if ((um = /^\/api\/users\/([\w-]+)$/.exec(p)) && m === 'DELETE') {
+    db.users = db.users.filter(u => u.id !== um[1]); await saveDb(); return json(res, 200, { ok: true });
+  }
   let pm;
   if ((pm = /^\/api\/photos\/([\w-]+)$/.exec(p))) {
     const ph = db.photos.find(x => x.id === pm[1]);
@@ -420,7 +509,7 @@ async function api(req, res, p, m) {
 
   if (p === '/api/backup.zip' && m === 'GET') {
     const entries = [{ name: 'items.json', data: Buffer.from(JSON.stringify(db, null, 1)) }];
-    for (const i of [...db.items, ...db.photos]) if (!i.seed) { try { entries.push({ name: 'uploads/' + i.file, data: await fsp.readFile(path.join(UPLOAD_DIR, i.file)) }); } catch { /* missing file */ } }
+    for (const i of [...db.items, ...db.photos, ...db.showcase]) if (!i.seed) { try { entries.push({ name: 'uploads/' + i.file, data: await fsp.readFile(path.join(UPLOAD_DIR, i.file)) }); } catch { /* missing file */ } }
     return send(res, 200, buildZip(entries), { 'Content-Type': 'application/zip', 'Content-Disposition': 'attachment; filename="gallery-backup.zip"', 'Cache-Control': 'no-store' });
   }
   return json(res, 404, { error: 'Not found' });
@@ -435,10 +524,50 @@ async function removeItems(ids) {
   await saveDb();
 }
 
+// ---------- Login with Yapin' ----------
+const stateCookie = (v, req, age) => `oauth_state=${v}; HttpOnly; SameSite=Lax; Path=/; Max-Age=${age}${secure(req)}`; // Lax: the return trip from Yapin' is a cross-site redirect
+function startLogin(req, res) {
+  if (!loginOn) return send(res, 503, 'Login with Yapin\u2019 is not set up on this server yet.');
+  const state = crypto.randomBytes(16).toString('hex');
+  const q = new URLSearchParams({ client_id: Y_ID, redirect_uri: baseUrl(req) + '/callback', response_type: 'code', scope: 'identify', state });
+  res.writeHead(302, { Location: `${YAPIN}/oauth/authorize?${q}`, 'Set-Cookie': stateCookie(state, req, 600), 'Cache-Control': 'no-store', ...SEC });
+  res.end();
+}
+async function finishLogin(req, res, url) {
+  const back = m => { res.writeHead(302, { Location: '/?login=' + m, 'Set-Cookie': stateCookie('', req, 0), 'Cache-Control': 'no-store', ...SEC }); res.end(); };
+  if (!loginOn) return back('failed');
+  const q = url.searchParams, state = q.get('state') || '', saved = cookies(req).oauth_state || '';
+  const a = Buffer.from(state), b = Buffer.from(saved);
+  if (!saved || a.length !== b.length || !crypto.timingSafeEqual(a, b)) return back('failed');
+  if (q.get('error')) return back(q.get('error') === 'access_denied' ? 'cancelled' : 'failed');
+  const code = q.get('code'); if (!code) return back('failed');
+  try {
+    const tr = await fetch(`${YAPIN}/api/oauth/token`, {
+      method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, signal: AbortSignal.timeout(10000),
+      body: new URLSearchParams({ grant_type: 'authorization_code', code, redirect_uri: baseUrl(req) + '/callback', client_id: Y_ID, client_secret: Y_SECRET })
+    });
+    if (!tr.ok) throw new Error('token request ' + tr.status);
+    const { access_token } = await tr.json();
+    if (!access_token) throw new Error('no access token');
+    const mr = await fetch(`${YAPIN}/api/oauth/me`, { headers: { Authorization: 'Bearer ' + access_token }, signal: AbortSignal.timeout(10000) });
+    if (!mr.ok) throw new Error('me request ' + mr.status);
+    const me = await mr.json(), id = String(me.id ?? '');
+    if (!/^[\w-]{1,64}$/.test(id)) throw new Error('unexpected id');
+    let u = db.users.find(x => x.id === id);
+    if (!u) { u = { id, firstSeen: Date.now() }; db.users.push(u); }
+    Object.assign(u, { username: clean(me.username, 40), display_name: me.display_name ? clean(me.display_name, 60) : null, avatar_url: okUrl(me.avatar_url), lastLogin: Date.now() });
+    await saveDb();
+    res.writeHead(302, { Location: '/?login=ok', 'Set-Cookie': [`usid=${makeUserToken(id)}; HttpOnly; SameSite=Lax; Path=/; Max-Age=2592000${secure(req)}`, stateCookie('', req, 0)], 'Cache-Control': 'no-store', ...SEC });
+    res.end();
+  } catch (e) { console.error('login failed:', e.message); back('failed'); }
+}
+
 // ---------- server ----------
 async function handle(req, res) {
   const p = new URL(req.url, 'http://x').pathname, m = req.method;
   if (p === '/healthz') return send(res, 200, 'ok', { 'Cache-Control': 'no-store' });
+  if (p === '/login' && m === 'GET') return startLogin(req, res);
+  if (p === '/callback' && m === 'GET') return finishLogin(req, res, new URL(req.url, 'http://x'));
   if (p.startsWith('/api/')) return api(req, res, p, m);
   if (m !== 'GET' && m !== 'HEAD') return send(res, 405, 'Method not allowed');
   if (p === '/') return serveStatic(req, res, PUBLIC_DIR, 'index.html', 'no-cache');
@@ -455,6 +584,21 @@ const server = http.createServer((req, res) => {
     if (!res.headersSent) json(res, 500, { error: 'Server error' }); else res.end();
   });
 });
+// ---------- keep awake ----------
+// Render's free plan sleeps a site after 15 minutes without a visitor. This makes the site visit itself
+// through its public address every few minutes, which counts as a visit. (It can only keep an awake site awake.)
+const KEEP_URL = (process.env.PUBLIC_URL || process.env.RENDER_EXTERNAL_URL || '').replace(/\/$/, '');
+const KEEP_MIN = Number(process.env.KEEP_ALIVE_MINUTES) || 4;
+const keep = { on: !!KEEP_URL && process.env.KEEP_ALIVE !== '0', url: KEEP_URL, everyMin: KEEP_MIN, last: null, ok: null, error: null, count: 0 };
+async function pingSelf() {
+  try {
+    const r = await fetch(KEEP_URL + '/healthz', { signal: AbortSignal.timeout(20000), headers: { 'User-Agent': 'pixel-gallery-keepalive' } });
+    keep.ok = r.ok; keep.error = r.ok ? null : 'HTTP ' + r.status;
+  } catch (e) { keep.ok = false; keep.error = String(e.message || e); }
+  keep.last = Date.now(); keep.count++;
+}
+if (keep.on) { setTimeout(pingSelf, 45000).unref(); setInterval(pingSelf, KEEP_MIN * 60 * 1000).unref(); }
+
 server.keepAliveTimeout = 65000; // longer than Render's proxy idle timeout
 server.headersTimeout = 66000;
 server.listen(PORT, '0.0.0.0', () => console.log(`Gallery on :${PORT}  data=${DATA_DIR}  admin=${PASSWORD ? 'on' : 'DISABLED (set ADMIN_PASSWORD)'}`));
@@ -464,7 +608,4 @@ process.on('uncaughtException', e => console.error('uncaught', e));
 process.on('unhandledRejection', e => console.error('unhandled', e));
 for (const sig of ['SIGTERM', 'SIGINT']) process.on(sig, () => { server.close(() => process.exit(0)); setTimeout(() => process.exit(0), 8000).unref(); });
 
-// Optional self-ping for free plans (an outside monitor is more reliable, see README).
-if (process.env.KEEP_ALIVE === '1' && process.env.RENDER_EXTERNAL_URL) {
-  setInterval(() => fetch(process.env.RENDER_EXTERNAL_URL + '/healthz').catch(() => {}), 10 * 60 * 1000).unref();
-}
+

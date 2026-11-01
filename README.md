@@ -11,6 +11,22 @@ Your profile photo shows in the header and inside every preview circle. Add more
    Or **New → Web Service**: build `npm install`, start `npm start`, health check path `/healthz`.
 3. In Render → Environment, set `ADMIN_PASSWORD` to a long password. Visit `/admin` and log in.
 
+## Login with Yapin’
+
+Visitors press **Login with Yapin’**, approve, and their Yapin’ profile picture shows in every preview circle.
+The site only asks for the `identify` scope (id, username, display name, picture). It never stores the access token.
+Logged-in people appear in `/admin` → Accounts, where you can remove them.
+
+1. In Yapin’: **Settings → Developer → Login with Yapin’** → make an app. Copy the **client ID** and **client secret**
+   (the secret is shown once).
+2. Add this as the app's redirect URL, exactly: `https://yourm821.onrender.com/callback`
+   (your own address plus `/callback`; https only).
+3. Render → Environment, add `YAPPER_CLIENT_ID` and `YAPPER_CLIENT_SECRET`. Redeploy.
+   If you use your own domain instead of the onrender.com address, also set `PUBLIC_URL` to it (no trailing slash).
+4. Open the site. The button shows up once both values are set.
+
+If login ever says "did not work": the redirect URL in Yapin’ doesn't match exactly, or the secret is wrong.
+
 ## Saving your data (so nothing is ever lost)
 
 Render's free plan wipes the server's files on every restart, redeploy and sleep. Fix: the site backs itself up to GitHub.
@@ -29,15 +45,29 @@ can't be reached when it wakes. You can also download a `.zip` of your uploads f
 
 ## Keeping it alive
 
-- **Best: the paid plan.** `render.yaml` is set to `starter`, which never sleeps, plus a 1 GB disk at `/data`
-  (the site uses it automatically). With the disk you don't need the GitHub backup, but it's a good second copy.
-- **Free plan:** in `render.yaml` change `plan: starter` to `plan: free` and delete the `disk:` block.
-  Render puts free sites to sleep after 15 minutes without visitors. Make a free monitor on
-  **UptimeRobot** or **cron-job.org** that opens `https://YOUR-APP.onrender.com/healthz` every 5 minutes.
-  Free plans get 750 hours a month shared across all your free services, and one always-awake site uses about 744,
-  so a second free service (like your bot) can run you out. Render may also restart a free site at any time;
-  the cloud backup covers that.
-- The server logs and ignores stray errors instead of crashing, and shuts down cleanly when Render redeploys.
+Three layers, so one failing doesn't matter:
+
+1. **Built in.** The site visits its own address every 4 minutes (on automatically on Render; it uses
+   `RENDER_EXTERNAL_URL`, or `PUBLIC_URL` if you set it). Render counts that as a visitor, so the free plan's
+   15-minute sleep never starts. `/admin` → **Staying awake** shows whether it's working.
+2. **GitHub.** `.github/workflows/keepalive.yml` visits `/healthz` every 5 minutes from outside Render.
+   It starts working once this folder is in your GitHub repo. (GitHub can run these a few minutes late, and turns
+   scheduled jobs off on a public repo after 60 days without any commits. Re-enable under the Actions tab if so.)
+3. **The paid plan** (`plan: starter` in `render.yaml`) never sleeps at all. It's the only guaranteed option.
+
+A site can't wake *itself* once Render has put it to sleep, which is why layer 2 is outside Render. Also, on the free plan
+Render gives 750 hours a month shared by all your free services, and one always-awake site uses about 744, so a second
+free service (like your bot) can run you out. Render may also restart a free site at any time; the GitHub cloud backup
+below covers that. Set `KEEP_ALIVE=0` to turn the built-in check off.
+
+The server logs and ignores stray errors instead of crashing, and shuts down cleanly when Render redeploys.
+
+## Showcase
+
+The **Showcase** tab lets anyone logged in with Yapin’ share their own work (GIF, PNG or WebP, up to 5 MB,
+16 to 1024 pixels, 12 works each). New work waits for you to approve it in `/admin` → **Showcase submissions**.
+Tick "Show new showcase submissions right away" in the Site box if you'd rather skip approval. People can delete their own
+work, and you can delete anything. Showcase files are included in the cloud backup.
 
 ## Adding things for good without the admin page
 

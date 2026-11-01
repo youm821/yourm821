@@ -22,6 +22,7 @@
 
   <section class="panel"><h3>Site</h3>
     <div class="fields"><input id="s-title" type="text" placeholder="Title" maxlength="60"><input id="s-sub" type="text" placeholder="Subtitle" maxlength="160"><button id="s-save" class="btn sm">Save</button></div>
+    <label class="tog" style="margin-top:10px"><input id="s-auto" type="checkbox"> Show new showcase submissions right away (skip approval)</label>
     <div id="s-msg" class="msg"></div>
   </section>
 
@@ -52,6 +53,20 @@
     </div>
     <div id="a-msg" class="msg"></div>
     <div id="agrid" class="agrid"></div>
+  </section>
+
+  <section class="panel"><h3>Showcase submissions <span id="sc-n" style="color:var(--mute);font-weight:400"></span></h3>
+    <div id="sc-list" class="users"></div>
+  </section>
+
+  <section class="panel"><h3>Staying awake</h3>
+    <div id="up" class="statgrid"></div>
+    <p id="up-note" style="margin:10px 0 0;color:var(--mute)"></p>
+  </section>
+
+  <section class="panel"><h3>Accounts <span id="u-n" style="color:var(--mute);font-weight:400"></span></h3>
+    <div id="u-info" style="color:var(--mute);margin-bottom:10px"></div>
+    <div id="users" class="users"></div>
   </section>
 
   <section class="panel"><h3>Cloud backup</h3>

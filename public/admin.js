@@ -19,7 +19,7 @@ async function boot() {
   if (!me.admin) { showLogin(); if (!me.configured) say('#lmsg', 'ADMIN_PASSWORD is not set on the server yet.', 'err'); return; }
   $('#login').hidden = true; $('#app').hidden = false;
   await refresh();
-  loadSync(); setInterval(loadSync, 15000); loadPhotos();
+  loadSync(); setInterval(loadSync, 15000); loadPhotos(); loadUsers(); loadShowcase(); loadUptime(); setInterval(loadUptime, 20000);
 }
 async function loadSync() {
   try {
@@ -43,7 +43,7 @@ $('#logout').onclick = async () => { await api('POST', '/api/logout', {}).catch(
 async function refresh() {
   const d = await api('GET', '/api/admin/items');
   S.items = d.items;
-  $('#s-title').value = d.settings.title; $('#s-sub').value = d.settings.subtitle || '';
+  $('#s-auto').checked = !!d.settings.showcaseAuto; $('#s-title').value = d.settings.title; $('#s-sub').value = d.settings.subtitle || '';
   const sets = [...new Set(S.items.map(i => i.set))];
   $('#sets').replaceChildren(...sets.map(s => { const o = el('option'); o.value = s; return o; }));
   const cur = $('#f-set').value;
@@ -98,7 +98,7 @@ $('#b-move').onclick = () => bulk('move', { set: $('#b-set').value });
 $('#b-hide').onclick = () => bulk('hide'); $('#b-show').onclick = () => bulk('show'); $('#b-del').onclick = () => bulk('delete');
 
 $('#s-save').onclick = async () => {
-  try { await api('PUT', '/api/settings', { title: $('#s-title').value, subtitle: $('#s-sub').value }); say('#s-msg', 'Saved.', 'ok'); }
+  try { await api('PUT', '/api/settings', { title: $('#s-title').value, subtitle: $('#s-sub').value, showcaseAuto: $('#s-auto').checked }); say('#s-msg', 'Saved.', 'ok'); }
   catch (e) { say('#s-msg', e.message, 'err'); }
 };
 
@@ -178,3 +178,49 @@ $('#p-file').onchange = async e => {
   if (ok) say('#p-msg', ok + ' added. The newest one is now showing on the site.', 'ok');
   loadPhotos();
 };
+
+// ---------- accounts (people who logged in with Yapin') ----------
+async function loadUsers() {
+  const d = await api('GET', '/api/admin/users'); const box = $('#users'); box.replaceChildren();
+  $('#u-n').textContent = '(' + d.users.length + ')';
+  $('#u-info').textContent = d.login ? 'Login with Yapin\u2019 is on. Everyone who logged in appears here.' : 'Login with Yapin\u2019 is off. Set YAPPER_CLIENT_ID and YAPPER_CLIENT_SECRET on the server (see the README).';
+  if (!d.users.length) box.append(el('div', 'empty', 'Nobody has logged in yet.'));
+  for (const u of d.users) {
+    const c = el('div', 'u'); const name = u.display_name || u.username || u.id;
+    if (u.avatar_url) { const im = el('img'); im.src = u.avatar_url; im.alt = ''; im.referrerPolicy = 'no-referrer'; c.append(im); } else c.append(el('div', 'ini', name.slice(0, 1).toUpperCase()));
+    const t = el('div', 't'); t.append(el('b', '', name), el('span', '', (u.username ? '@' + u.username + ' · ' : '') + (u.lastLogin ? new Date(u.lastLogin).toLocaleDateString() : ''))); c.append(t);
+    const rm = el('button', 'btn danger sm', 'Remove'); rm.onclick = async () => { if (!confirm('Remove ' + name + '? They can log in again.')) return; await api('DELETE', '/api/users/' + encodeURIComponent(u.id)); loadUsers(); };
+    c.append(rm); box.append(c);
+  }
+}
+
+// ---------- showcase review ----------
+async function loadShowcase() {
+  const d = await api('GET', '/api/admin/showcase'); const box = $('#sc-list'); box.replaceChildren();
+  $('#sc-n').textContent = '(' + d.items.length + ')';
+  if (!d.items.length) box.append(el('div', 'empty', 'Nothing submitted yet.'));
+  for (const i of d.items) {
+    const c = el('div', 'u'); const im = el('img'); im.src = i.src; im.alt = ''; im.style.borderRadius = '8px'; c.append(im);
+    const t = el('div', 't'); t.append(el('b', '', i.title), el('span', '', 'by ' + i.by.name)); c.append(t);
+    c.append(el('span', 'status ' + (i.status === 'approved' ? 'ok' : 'wait'), i.status === 'approved' ? 'live' : 'waiting'));
+    const tog = el('button', 'btn ghost sm', i.status === 'approved' ? 'Hide' : 'Approve');
+    tog.onclick = async () => { await api('PATCH', '/api/admin/showcase/' + i.id, { status: i.status === 'approved' ? 'pending' : 'approved' }); loadShowcase(); };
+    const rm = el('button', 'btn danger sm', 'Delete'); rm.onclick = async () => { if (!confirm('Delete "' + i.title + '"?')) return; await api('DELETE', '/api/admin/showcase/' + i.id); loadShowcase(); };
+    c.append(tog, rm); box.append(c);
+  }
+}
+// ---------- uptime ----------
+const dur = s => { const d = Math.floor(s / 86400), h = Math.floor(s % 86400 / 3600), m = Math.floor(s % 3600 / 60); return (d ? d + 'd ' : '') + (h ? h + 'h ' : '') + m + 'm'; };
+async function loadUptime() {
+  try {
+    const d = await api('GET', '/api/status'), box = $('#up'); box.replaceChildren();
+    const stat = (l, v) => { const s = el('div', 'stat'); s.append(el('small', '', l), el('b', '', v)); box.append(s); };
+    stat('Running for', dur(d.uptime));
+    stat('Self-check', d.keep.on ? (d.keep.ok === null ? 'starting…' : d.keep.ok ? 'working' : 'failing') : 'off');
+    stat('Last self-check', d.keep.last ? new Date(d.keep.last).toLocaleTimeString() : 'not yet');
+    stat('Checks so far', String(d.keep.count));
+    $('#up-note').textContent = d.keep.on
+      ? 'The site visits itself every ' + d.keep.everyMin + ' minutes so Render does not put it to sleep.' + (d.keep.error ? ' Problem: ' + d.keep.error : '')
+      : 'Self-check is off (no site address known). Set PUBLIC_URL to your site address to turn it on.';
+  } catch { /* logged out */ }
+}
