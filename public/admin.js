@@ -277,7 +277,7 @@ async function loadUsers() {
   for (const u of d.users) { try {
     const name = String(u.display_name || u.username || u.id || 'Someone'); const c = el('div', 'u');
     if (u.avatar_url) { const im = el('img'); im.src = u.avatar_url; im.alt = ''; im.referrerPolicy = 'no-referrer'; c.append(im); } else c.append(el('div', 'ini', name.slice(0, 1).toUpperCase()));
-    const t = el('div', 't'); t.append(el('b', '', name), badgeRow(u.badges), el('span', '', (u.username ? '@' + u.username + ' · ' : '') + (u.lastLogin ? new Date(u.lastLogin).toLocaleDateString() : ''))); c.append(t);
+    const t = el('div', 't'); t.append(el('b', '', name), (typeof badgeRow === 'function' ? badgeRow(u.badges) : el('span')), el('span', '', (u.username ? '@' + u.username + ' · ' : '') + (u.lastLogin ? new Date(u.lastLogin).toLocaleDateString() : ''))); c.append(t);
     const rm = el('button', 'btn danger sm', 'Remove'); rm.onclick = async () => { if (!confirm('Remove ' + name + '? They can log in again.')) return; await api('DELETE', '/api/users/' + encodeURIComponent(u.id)); loadUsers(); };
     if (d.owner) {
       const ad = el('button', 'btn ghost sm', u.admin ? 'Remove admin' : 'Make admin');
@@ -288,8 +288,8 @@ async function loadUsers() {
       const tg = el('div', 'bdgpick');
       for (const [key, label] of Object.entries(d.badgeList || {})) {
         const has = (u.badges || []).includes(key);
-        const bb = el('button', 'bdgbtn' + (has ? ' on' : '')); bb.title = (has ? 'Remove ' : 'Give ') + label + ' badge'; bb.style.setProperty('--bc', (BADGE_DEFS[key] || {}).color || '#888');
-        const ic = badgeIcon(key, 16); if (ic) bb.append(ic); else bb.textContent = label;
+        const bb = el('button', 'bdgbtn' + (has ? ' on' : '')); bb.title = (has ? 'Remove ' : 'Give ') + label + ' badge'; bb.style.setProperty('--bc', ((typeof BADGE_DEFS !== 'undefined' && BADGE_DEFS[key]) || {}).color || '#888');
+        const ic = typeof badgeIcon === 'function' ? badgeIcon(key, 16) : null; if (ic) bb.append(ic); else bb.textContent = label;
         bb.onclick = async () => { const next = has ? u.badges.filter(x => x !== key) : [...(u.badges || []), key]; try { await api('PUT', '/api/admin/users/' + encodeURIComponent(u.id) + '/badges', { badges: next }); loadUsers(); } catch (e) { alert(e.message); } };
         tg.append(bb);
       }
