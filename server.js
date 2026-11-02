@@ -169,7 +169,7 @@ function saveDb() {
 await saveDb();
 
 const likeInfo = (id, me) => { const l = (db.likes && db.likes[id]) || []; return { likes: l.length, liked: !!(me && l.includes(me.id)) }; };
-const pub = (i, me) => ({ id: i.id, src: i.src, title: i.title, set: i.set, ...likeInfo(i.id, me || null) });
+const pub = (i, me) => ({ id: i.id, src: i.src, title: i.title, set: i.set, fresh: !i.seed, ...likeInfo(i.id, me || null) });
 const ptView = p => ({ id: p.id, name: p.name, blurb: p.blurb || '', url: p.url || '', kind: p.kind || 'partner', cover: p.file ? '/uploads/' + p.file : null, coverFile: p.file || null, works: (p.works || []).map(w => ({ file: w.file, src: '/uploads/' + w.file })) });
 const photoView = p => ({ id: p.id, src: p.src, seed: !!p.seed, active: p.id === db.activePhoto });
 const activePhotoSrc = () => db.photos.find(p => p.id === db.activePhoto)?.src || null;
@@ -359,6 +359,11 @@ async function removeShowcase(id) {
 const viewSeen = new Map();
 async function api(req, res, p, m) {
   if (p === '/api/partners' && m === 'GET') return json(res, 200, { partners: (db.partners || []).map(ptView) });
+  if (p === '/api/trending' && m === 'GET') { // top decorations by opens + 3x likes; empty until people use the site
+    const score = i => (db.views[i.id] || 0) + 3 * (db.likes[i.id] || []).length;
+    const ids = db.items.filter(i => !i.hidden).map(i => [i.id, score(i)]).filter(x => x[1] > 0).sort((x, y) => y[1] - x[1]).slice(0, 8).map(x => x[0]);
+    return json(res, 200, { ids });
+  }
   if (p === '/api/items' && m === 'GET') return json(res, 200, { settings: db.settings, photo: activePhotoSrc(), items: db.items.filter(i => !i.hidden).map(i => pub(i, userFromReq(req))) });
   if (p === '/api/me' && m === 'GET') return json(res, 200, { admin: isAdmin(req), owner: isOwner(req), configured: !!PASSWORD, login: loginOn, user: pubUser(userFromReq(req)) });
   if (p === '/api/user/logout' && m === 'POST') {

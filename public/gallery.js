@@ -1,8 +1,12 @@
 const $ = s => document.querySelector(s);
-const state = { items: [], set: 'All', q: '', sort: 'default', open: new Set() };
+const state = { items: [], trending: [], set: 'All', q: '', sort: 'default', open: new Set() };
 try { state.set = localStorage.getItem('set') || 'All'; state.sort = localStorage.getItem('sort') || 'default'; } catch { /* storage blocked */ }
 const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
 
+// Each set has its own hue; unknown sets (added in /admin) get a stable one from their name.
+const SET_HUE = { 'Dude': 205, 'Slime': 135, 'Christmas': 352, 'Thanksgiving': 32, 'Hanukkah': 218, 'Bear': 24, 'Halloween': 275, 'Starter Pack': 175, 'Rings': 262, 'Orbiting & Falling': 190, 'Ears, Hats & Peeking': 328, 'Corner Sets': 52, 'Extras': 300, 'Trending': 85, 'New': 240 };
+const hueOf = n => SET_HUE[n] != null ? SET_HUE[n] : [...String(n)].reduce((s, c) => (s * 31 + c.charCodeAt(0)) % 360, 7);
+const tint = (e, n) => { e.classList.add('setc'); e.style.setProperty('--h', hueOf(n)); return e; };
 const badgeSafe = l => { try { return badgeRow(l); } catch { return document.createElement('span'); } }; // badges.js is optional
 const LOGIN = 'Login with Yapin\u2019';
 let ME = null;
@@ -60,7 +64,9 @@ async function load() {
     document.documentElement.style.setProperty('--photo-bg', `url("${d.photo}") center/cover no-repeat`);
   }
   state.items = d.items;
+  try { state.trending = (await (await fetch('/api/trending', { cache: 'no-cache' })).json()).ids || []; } catch { /* optional */ }
   render();
+  openFromHash();
 }
 function render() {
   const counts = new Map();
@@ -69,6 +75,7 @@ function render() {
   const chips = $('#chips'); chips.replaceChildren();
   for (const name of ['All', ...counts.keys()]) {
     const b = el('button', 'chip' + (name === state.set ? ' on' : ''), name);
+    if (name !== 'All') tint(b, name);
     b.append(el('b', '', name === 'All' ? state.items.length : counts.get(name)));
     b.onclick = () => { state.set = name; try { localStorage.setItem('set', name); } catch { /* ignore */ } render(); };
     chips.append(b);
@@ -80,31 +87,65 @@ function render() {
   if (!shown.length) grid.append(el('div', 'empty', 'Nothing here yet.'));
   const groups = new Map();
   for (const i of shown) { if (!groups.has(i.set)) groups.set(i.set, []); groups.get(i.set).push(i); }
+  if (state.set === 'All' && !q && state.sort === 'default') { // highlight rows above the sets
+    const hot = state.trending.map(id => shown.find(i => i.id === id)).filter(Boolean);
+    const fresh = shown.filter(i => i.fresh).slice(0, 8);
+    const lead = new Map(); if (hot.length) lead.set('Trending', hot); if (fresh.length) lead.set('New', fresh);
+    for (const [k, v] of groups) lead.set(k, v);
+    groups.clear(); for (const [k, v] of lead) groups.set(k, v);
+  }
   for (const [name, list] of groups) {
-    if (state.set === 'All') { const h = el('h2', 'set', name); h.append(el('span', '', list.length)); grid.append(h); }
+    if (state.set === 'All') { const h = tint(el('h2', 'set', name), name); h.append(el('span', '', list.length)); grid.append(h); }
     const foldable = state.set === 'All' && !q && list.length > 8, folded = foldable && !state.open.has(name);
     const g = el('div', 'grid');
     for (const i of folded ? list.slice(0, 8) : list) {
-      const f = el('figure', 'card');
+      const f = tint(el('figure', 'card'), i.set);
       const st = el('div', 'stage ld'); st.append(el('div', 'av'));
       const img = el('img'); img.src = i.src; img.alt = i.title; img.loading = 'lazy'; img.onload = img.onerror = () => st.classList.remove('ld'); st.append(img);
       f.append(st, el('figcaption', '', i.title), likeBtn(i));
-      f.onclick = () => openModal(i);
+      cardKeys(f, () => openModal(i));
       g.append(f);
     }
     grid.append(g);
     if (foldable) { const more = el('button', 'btn ghost sm more', folded ? 'Show all ' + list.length : 'Show less'); more.onclick = () => { if (folded) state.open.add(name); else state.open.delete(name); render(); }; grid.append(more); }
   }
   $('#count').textContent = shown.length + ' of ' + state.items.length + ' shown';
+  const st = $('#stats'); if (st) { st.replaceChildren(); for (const [n, w] of [[state.items.length, 'decorations'], [counts.size, 'sets']]) { const s = el('span'); s.append(el('b', '', n), ' ' + w); st.append(s); } st.hidden = !state.items.length; }
+}
+function cardKeys(f, open) {
+  f.tabIndex = 0; f.setAttribute('role', 'button');
+  f.onclick = open;
+  f.onkeydown = e => { if (e.target === f && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); open(); } };
+}
+const shareHash = id => !id ? '' : (String(id).startsWith('sc-') ? '#showcase/' : '#d/') + encodeURIComponent(id);
+function openFromHash() {
+  let m = /^#d\/(.+)$/.exec(location.hash);
+  if (m) { let id; try { id = decodeURIComponent(m[1]); } catch { return; } const it = state.items.find(x => x.id === id); if (it) openModal(it); return; }
+  m = /^#showcase\/(.+)$/.exec(location.hash);
+  if (m) {
+    let id; try { id = decodeURIComponent(m[1]); } catch { return; }
+    Promise.resolve(tab('show')).then(() => { const i = (state.showItems || []).find(x => x.id === id && x.status === 'approved'); if (i) openModal({ id: i.id, src: i.src, title: i.title, set: 'by ' + i.by.name }); });
+  }
+}
+addEventListener('hashchange', openFromHash);
+async function copyLink() {
+  const b = $('#copy'), url = location.origin + '/' + b.dataset.hash;
+  try { await navigator.clipboard.writeText(url); b.textContent = 'Link copied'; }
+  catch { prompt('Copy this link:', url); b.textContent = 'Copy link'; return; }
+  setTimeout(() => { b.textContent = 'Copy link'; }, 1800);
 }
 function openModal(i) {
   if (i.id) fetch('/api/view', { ...JSON_POST, body: JSON.stringify({ id: i.id }) }).catch(() => {}); // popularity count
   $('#mimg').src = i.src; $('#mimg').alt = i.title;
   $('#mtitle').textContent = i.title; $('#mset').textContent = i.set;
-  $('#modal').hidden = false;
+  const sheet = document.querySelector('#modal .sheet'); sheet.classList.remove('setc'); sheet.style.removeProperty('--h'); if (i.set && !String(i.set).startsWith('by ')) tint(sheet, i.set);
+  const cp = $('#copy'), sh = shareHash(i.id); cp.hidden = !sh; cp.dataset.hash = sh; cp.textContent = 'Copy link';
+  if (sh) history.replaceState(null, '', sh);
+  lastCard = document.activeElement; $('#modal').hidden = false; $('#close').focus();
 }
-const closeModal = () => { $('#modal').hidden = true; };
-$('#close').onclick = closeModal;
+let lastCard = null;
+const closeModal = () => { $('#modal').hidden = true; if (location.hash.startsWith('#d/')) history.replaceState(null, '', location.pathname + location.search); else if (location.hash.startsWith('#showcase/')) history.replaceState(null, '', '#showcase'); if (lastCard && lastCard.focus) lastCard.focus(); };
+$('#close').onclick = closeModal; $('#copy').onclick = copyLink;
 $('#modal').onclick = e => { if (e.target.id === 'modal') closeModal(); };
 addEventListener('keydown', e => { if (e.key === 'Escape') closeModal(); });
 $('#q').oninput = e => { state.q = e.target.value; render(); };
@@ -132,7 +173,7 @@ function tab(which) {
   $('#galwrap').hidden = show; $('#showwrap').hidden = !show;
   $('#tab-gal').classList.toggle('on', !show); $('#tab-show').classList.toggle('on', show);
   history.replaceState(null, '', show ? '#showcase' : location.pathname + location.search);
-  if (show) loadShowcase();
+  if (show) return loadShowcase();
 }
 $('#tab-gal').onclick = () => tab('gal'); $('#tab-show').onclick = () => tab('show');
 function byLine(by) {
@@ -143,6 +184,7 @@ function byLine(by) {
 async function loadShowcase() {
   if (!ME) { try { ME = await (await fetch('/api/me', { credentials: 'same-origin' })).json(); } catch { ME = {}; } }
   const d = await (await fetch('/api/showcase', { credentials: 'same-origin', cache: 'no-cache' })).json();
+  state.showItems = d.items;
   const box = $('#shareBox'); box.replaceChildren();
   if (ME.user) { const b = el('button', 'btn', 'Share your work'); b.onclick = () => { $('#shareForm').hidden = !$('#shareForm').hidden; }; box.append(b); }
   else if (ME.login) { const a = el('a', 'btn', LOGIN); a.href = '/signin'; box.append(a); }
@@ -160,7 +202,7 @@ async function loadShowcase() {
       del.onclick = async e => { e.stopPropagation(); if (!confirm('Delete "' + i.title + '"?')) return; await fetch('/api/showcase/' + i.id, { method: 'DELETE', credentials: 'same-origin' }); loadShowcase(); };
       f.append(del);
     }
-    f.onclick = () => openModal({ id: i.status === 'approved' ? i.id : null, src: i.src, title: i.title, set: 'by ' + i.by.name });
+    cardKeys(f, () => openModal({ id: i.status === 'approved' ? i.id : null, src: i.src, title: i.title, set: 'by ' + i.by.name }));
     g.append(f);
   }
   grid.append(g);
