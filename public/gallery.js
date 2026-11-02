@@ -1,6 +1,7 @@
 const $ = s => document.querySelector(s);
 const state = { items: [], trending: [], set: 'All', q: '', sort: 'default', open: new Set() };
 try { state.set = localStorage.getItem('set') || 'All'; state.sort = localStorage.getItem('sort') || 'default'; } catch { /* storage blocked */ }
+{ const ws = new URLSearchParams(location.search).get('set'); if (ws) state.set = ws; } // /gallery?set=Name from the home page
 const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
 
 // Each set has its own hue; unknown sets (added in /admin) get a stable one from their name.
@@ -168,7 +169,7 @@ function openModal(i) {
   if ($('#modal').hidden) lastCard = document.activeElement; $('#modal').hidden = false; $('#close').focus();
 }
 let lastCard = null, modalItem = null;
-const closeModal = () => { $('#modal').hidden = true; if (location.pathname.startsWith('/d/') || location.hash.startsWith('#d/')) history.replaceState(null, '', '/' + location.search); else if (location.hash.startsWith('#showcase/')) history.replaceState(null, '', '#showcase'); if (lastCard && lastCard.focus) lastCard.focus(); };
+const closeModal = () => { $('#modal').hidden = true; if (location.pathname.startsWith('/d/') || location.hash.startsWith('#d/')) history.replaceState(null, '', '/gallery' + location.search); else if (location.hash.startsWith('#showcase/')) history.replaceState(null, '', '#showcase'); if (lastCard && lastCard.focus) lastCard.focus(); };
 $('#close').onclick = closeModal; $('#copy').onclick = copyLink;
 $('#modal').onclick = e => { if (e.target.id === 'modal') closeModal(); };
 addEventListener('keydown', e => { if (e.key === 'Escape') closeModal(); });
@@ -226,7 +227,7 @@ function tab(which) {
   const show = which === 'show', fav = which === 'fav';
   $('#galwrap').hidden = show || fav; $('#showwrap').hidden = !show; $('#favwrap').hidden = !fav;
   $('#tab-gal').classList.toggle('on', which === 'gal' || !which); $('#tab-fav').classList.toggle('on', fav); $('#tab-show').classList.toggle('on', show);
-  const base = location.pathname.startsWith('/d/') ? '/' : location.pathname;
+  const base = location.pathname.startsWith('/d/') ? '/gallery' : location.pathname;
   history.replaceState(null, '', show ? base + location.search + '#showcase' : fav ? base + location.search + '#favorites' : base + location.search);
   if (fav) renderFavs();
   if (show) return loadShowcase();

@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<link rel="icon" href="/favicon.png" type="image/png" sizes="64x64">
+<link rel="apple-touch-icon" href="/favicon.png">
+<meta name="theme-color" content="#14141c">
+<title>Pixel Decorations</title>
+<meta name="description" content="Pixel-art avatar decorations. Pick one, try it on your picture, and share your own pixel art.">
+<meta property="og:site_name" content="Pixel Decorations"><meta property="og:type" content="website">
+<meta property="og:title" content="Pixel Decorations">
+<meta property="og:description" content="Pixel-art avatar decorations. Pick one and try it on your picture.">
+<meta property="og:image" content="/favicon.png">
+<script src="/theme.js"></script>
+<link rel="stylesheet" href="/style.css">
+<link rel="stylesheet" href="/landing.css">
+</head>
+<body class="showav land">
+<a class="skip" href="#sets">Skip to the sets</a>
+
+<nav class="lnav" aria-label="Main">
+  <a class="brand" href="/"><img src="/favicon.png" alt="" width="28" height="28"><span id="brand">Pixel Decorations</span></a>
+  <div class="links">
+    <a href="/gallery">Gallery</a>
+    <a href="/gallery#showcase">Showcase</a>
+    <a href="/partners">Partners</a>
+    <a href="/about">About</a>
+  </div>
+</nav>
+
+<header class="lhero">
+  <div class="copy">
+    <p class="eyebrow">Avatar decorations, made in pixels</p>
+    <h1>Give your profile picture a little <em>sparkle</em>.</h1>
+    <p class="lead" id="lead">Browse a growing collection of pixel-art decorations, try any of them on your own picture, and share your own art with everyone.</p>
+    <div class="cta">
+      <a class="btn big" href="/gallery">Browse the gallery</a>
+      <a class="btn ghost big" id="surprise" href="/gallery">Surprise me</a>
+    </div>
+    <div class="stats" id="lstats" hidden></div>
+  </div>
+  <div class="mosaic" id="mosaic" aria-hidden="true"></div>
+</header>
+
+<section class="lsec" id="sets" aria-labelledby="h-sets">
+  <div class="shead"><h2 id="h-sets">Pick a set</h2><p>Every set has its own look. Open one and everything in it is a click away.</p></div>
+  <div class="setgrid" id="setgrid"></div>
+</section>
+
+<section class="lsec" id="hot" aria-labelledby="h-hot" hidden>
+  <div class="shead"><h2 id="h-hot">Popular right now</h2><p>The most opened and most loved decorations.</p></div>
+  <div class="grid" id="hotgrid"></div>
+</section>
+
+<section class="lsec" aria-labelledby="h-how">
+  <div class="shead"><h2 id="h-how">How it works</h2></div>
+  <ol class="steps">
+    <li><span class="n">1</span><h3>Find one you like</h3><p>Search by name, filter by set, or hit <b>Surprise me</b> and see what turns up.</p></li>
+    <li><span class="n">2</span><h3>Try it on</h3><p>Log in with Yapin&rsquo; to see your own profile picture in every preview, or pick a color or upload a picture. Nothing leaves your browser.</p></li>
+    <li><span class="n">3</span><h3>Share your own</h3><p>Made some pixel art? Submit it to the community Showcase. Only upload work you made yourself.</p></li>
+  </ol>
+</section>
+
+<section class="lsec">
+  <div class="final panel">
+    <div><h2>Ready to look around?</h2><p>The whole collection is free to browse. No account needed.</p></div>
+    <div class="cta"><a class="btn big" href="/gallery">Open the gallery</a><a class="btn ghost big" href="/gallery#showcase">See the showcase</a></div>
+  </div>
+</section>
+
+<footer class="foot"><span id="count"></span><span><a href="/gallery">Gallery</a> <a href="/about">About</a> <a href="/partners">Partners</a> <a id="support2" target="_blank" rel="noopener noreferrer" hidden>Support server</a> <a href="/admin">Admin</a></span></footer>
+<script src="/landing.js"></script>
+</body>
+</html>

@@ -721,7 +721,7 @@ function startLogin(req, res) {
 const loginDiag = { at: null, error: null };
 const loginFail = why => { loginDiag.at = Date.now(); loginDiag.error = why; console.error('login failed:', why); };
 async function finishLogin(req, res, url) {
-  const back = m => { res.writeHead(302, { Location: '/?login=' + m, 'Set-Cookie': stateCookie('', req, 0), 'Cache-Control': 'no-store', ...SEC }); res.end(); };
+  const back = m => { res.writeHead(302, { Location: '/gallery?login=' + m, 'Set-Cookie': stateCookie('', req, 0), 'Cache-Control': 'no-store', ...SEC }); res.end(); };
   if (!loginOn) return back('failed');
   const q = url.searchParams, state = q.get('state') || '', saved = cookies(req).oauth_state || '';
   const a = Buffer.from(state), b = Buffer.from(saved);
@@ -745,7 +745,7 @@ async function finishLogin(req, res, url) {
     if (!u) { u = { id, firstSeen: Date.now() }; db.users.push(u); }
     Object.assign(u, { username: clean(me.username, 40), display_name: me.display_name ? clean(me.display_name, 60) : null, avatar_url: okUrl(me.avatar_url), lastLogin: Date.now() });
     await saveDb();
-    res.writeHead(302, { Location: cookies(req).oauth_next === 'admin' ? '/admin' : '/?login=ok', 'Set-Cookie': [`usid=${makeUserToken(id)}; HttpOnly; SameSite=Lax; Path=/; Max-Age=2592000${secure(req)}`, stateCookie('', req, 0)], 'Cache-Control': 'no-store', ...SEC });
+    res.writeHead(302, { Location: cookies(req).oauth_next === 'admin' ? '/admin' : '/gallery?login=ok', 'Set-Cookie': [`usid=${makeUserToken(id)}; HttpOnly; SameSite=Lax; Path=/; Max-Age=2592000${secure(req)}`, stateCookie('', req, 0)], 'Cache-Control': 'no-store', ...SEC });
     res.end();
   } catch (e) { loginFail(e.name === 'TimeoutError' ? `Could not reach ${YAPIN} (timed out). Check YAPIN_BASE.` : String(e.message || e)); back('failed'); }
 }
@@ -761,13 +761,13 @@ async function handle(req, res) {
   if (p === '/robots.txt') return send(res, 200, `User-agent: *\nDisallow: /admin\nSitemap: ${baseUrl(req)}/sitemap.xml\n`, { 'Content-Type': 'text/plain; charset=utf-8' });
   if (p === '/sitemap.xml') {
     const b = baseUrl(req), esc = x => String(x).replace(/&/g, '&amp;').replace(/</g, '&lt;');
-    const urls = [b + '/', b + '/about', b + '/partners', ...db.items.filter(i => !i.hidden).map(i => b + '/d/' + encodeURIComponent(i.id))];
+    const urls = [b + '/', b + '/gallery', b + '/about', b + '/partners', ...db.items.filter(i => !i.hidden).map(i => b + '/d/' + encodeURIComponent(i.id))];
     return send(res, 200, '<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n' + urls.map(u => '<url><loc>' + esc(u) + '</loc></url>').join('\n') + '\n</urlset>\n', { 'Content-Type': 'application/xml; charset=utf-8' });
   }
   if (p.startsWith('/d/')) { // one decoration: same page, but with a title and picture for link previews
     let id = ''; try { id = decodeURIComponent(p.slice(3)); } catch { /* bad escape */ }
     const it = db.items.find(i => i.id === id && !i.hidden);
-    let html; try { html = await fsp.readFile(path.join(PUBLIC_DIR, 'index.html'), 'utf8'); } catch { return send(res, 404, 'Not found'); }
+    let html; try { html = await fsp.readFile(path.join(PUBLIC_DIR, 'gallery.html'), 'utf8'); } catch { return send(res, 404, 'Not found'); }
     if (it) {
       const e = x => String(x).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;'), b = baseUrl(req);
       const title = e(it.title + ' \u00b7 ' + (db.settings.title || 'Pixel Decorations')), desc = e('A ' + it.set + ' pixel avatar decoration. Try it on your picture.');
@@ -779,6 +779,7 @@ async function handle(req, res) {
     return send(res, it ? 200 : 404, html, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-cache' });
   }
   if (p === '/') return serveStatic(req, res, PUBLIC_DIR, 'index.html', 'no-cache');
+  if (p === '/gallery') return serveStatic(req, res, PUBLIC_DIR, 'gallery.html', 'no-cache');
   if (p === '/admin') return serveStatic(req, res, PUBLIC_DIR, 'admin.html', 'no-cache');
   if (p === '/about') return serveStatic(req, res, PUBLIC_DIR, 'about.html', 'no-cache');
   if (p === '/partners') return serveStatic(req, res, PUBLIC_DIR, 'partners.html', 'no-cache');
@@ -818,3 +819,5 @@ server.listen(PORT, '0.0.0.0', () => console.log(`Gallery on :${PORT}  data=${DA
 process.on('uncaughtException', e => console.error('uncaught', e));
 process.on('unhandledRejection', e => console.error('unhandled', e));
 for (const sig of ['SIGTERM', 'SIGINT']) process.on(sig, () => { server.close(() => process.exit(0)); setTimeout(() => process.exit(0), 8000).unref(); });
+
+
