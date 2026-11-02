@@ -39,7 +39,9 @@ async function loadAccount() {
     const name = me.user.display_name || me.user.username || 'You';
     if (me.user.avatar_url) { const im = el('img'); im.src = me.user.avatar_url; im.alt = ''; im.referrerPolicy = 'no-referrer'; box.append(im); setPreviewPhoto(me.user.avatar_url); }
     else box.append(el('div', 'ini', name.slice(0, 1).toUpperCase()));
-    const w = el('div', 'who', name); w.append(badgeSafe(me.user.badges)); if (me.user.username) w.append(el('small', '', '@' + me.user.username)); box.append(w);
+    const w = el('div', 'who');
+    if (me.user.username) { const a = el('a', '', name); a.href = '/u/' + encodeURIComponent(me.user.username); a.style.color = 'inherit'; a.title = 'Your profile'; w.append(a); } else w.append(name);
+    w.append(badgeSafe(me.user.badges)); if (me.user.username) w.append(el('small', '', '@' + me.user.username)); box.append(w);
     const out = el('button', 'btn ghost sm', 'Log out');
     out.onclick = async () => { await fetch('/api/user/logout', { method: 'POST', credentials: 'same-origin' }); location.reload(); };
     box.append(out);
@@ -236,7 +238,9 @@ $('#tab-gal').onclick = () => tab('gal'); $('#tab-show').onclick = () => tab('sh
 function byLine(by) {
   const d = el('div', 'by');
   if (by.avatar_url) { const im = el('img'); im.src = by.avatar_url; im.alt = ''; im.referrerPolicy = 'no-referrer'; d.append(im); } else d.append(el('div', 'ini', (by.name || '?').slice(0, 1).toUpperCase()));
-  const who = el('span', '', 'by ' + by.name); who.append(badgeSafe(by.badges)); d.append(who); return d;
+  const who = el('span', '', 'by ');
+  if (by.username) { const a = el('a', '', by.name); a.href = '/u/' + encodeURIComponent(by.username); a.style.color = 'inherit'; a.onclick = e => e.stopPropagation(); who.append(a); } else who.append(by.name);
+  who.append(badgeSafe(by.badges)); d.append(who); return d;
 }
 async function loadShowcase() {
   if (!ME) { try { ME = await (await fetch('/api/me', { credentials: 'same-origin' })).json(); } catch { ME = {}; } }

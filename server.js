@@ -396,6 +396,16 @@ async function api(req, res, p, m) {
     const one = hits[0] && { id: hits[0].id, title: hits[0].title, set: hits[0].set, image: b + hits[0].src, url: b + '/d/' + encodeURIComponent(hits[0].id) };
     return json(res, 200, { found: !!one, ...one, others: hits.slice(1, 6).map(i => i.title), sets: one ? undefined : setNames() });
   }
+  let pf;
+  if (m === 'GET' && (pf = /^\/api\/profile\/([^/]+)$/.exec(p))) { // public profile: who they are and their approved showcase works
+    let h = ''; try { h = decodeURIComponent(pf[1]).toLowerCase(); } catch { /* bad escape */ }
+    const u = h && db.users.find(x => !x.banned && ((x.username && x.username.toLowerCase() === h) || String(x.id).toLowerCase() === h)), me = userFromReq(req);
+    if (!u) return json(res, 404, { error: 'No such profile' });
+    const own = !!(me && me.id === u.id), list = db.showcase.filter(x => x.ownerId === u.id && (x.status === 'approved' || own));
+    const works = list.map(x => ({ id: x.id, src: x.src, title: x.title, status: x.status, likes: likeInfo(x.id, null).likes }));
+    const hearts = list.filter(x => x.status === 'approved').reduce((n, x) => n + likeInfo(x.id, null).likes, 0);
+    return json(res, 200, { name: u.display_name || u.username || 'Someone', username: u.username || null, avatar_url: u.avatar_url || null, badges: cleanBadges(u.badges), since: u.firstSeen || null, own, works, hearts });
+  }
   if (p === '/api/packs' && m === 'GET') { const me = userFromReq(req); return json(res, 200, { sets: setNames(), mine: me ? db.packs.filter(x => x.ownerId === me.id).map(packView) : [] }); }
   if (p === '/api/packs' && m === 'POST') {
     const me = userFromReq(req);
@@ -846,6 +856,7 @@ async function handle(req, res) {
   if (p === '/gallery') return serveStatic(req, res, PUBLIC_DIR, 'gallery.html', 'no-cache');
   if (p === '/admin') return serveStatic(req, res, PUBLIC_DIR, 'admin.html', 'no-cache');
   if (p === '/about') return serveStatic(req, res, PUBLIC_DIR, 'about.html', 'no-cache');
+  if (/^\/u\/[^/]+$/.test(p)) return serveStatic(req, res, PUBLIC_DIR, 'profile.html', 'no-cache');
   if (p === '/packs' || /^\/pack\/[a-f0-9]{8}$/.test(p)) return serveStatic(req, res, PUBLIC_DIR, 'packs.html', 'no-cache');
   if (p === '/name-banners') { res.writeHead(302, { Location: '/gallery#name-banners', ...SEC }); return res.end(); } // now a tab on the gallery page
   if (p === '/partners') return serveStatic(req, res, PUBLIC_DIR, 'partners.html', 'no-cache');
