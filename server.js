@@ -349,6 +349,36 @@ function autoCreator(ownerId) { // first approved showcase work earns the Creato
   const u = db.users.find(x => x.id === ownerId); if (!u || u.creatorGiven) return;
   u.creatorGiven = true; u.badges = cleanBadges([...(u.badges || []), 'creator']);
 }
+// ---------- approval webhook ----------
+// Set APPROVAL_WEBHOOK_URL to a channel webhook (https). Each showcase work is announced once, when it is approved.
+const HOOK = process.env.APPROVAL_WEBHOOK_URL || '';
+async function announce(x, req) {
+  if (!/^https:\/\//.test(HOOK) || x.announced) return;
+  x.announced = true;
+  const b = baseUrl(req), by = userBy(x.ownerId)?.name || x.ownerName || 'someone', link = b + '/gallery#showcase/' + encodeURIComponent(x.id);
+  try {
+    const r = await fetch(HOOK, { method: 'POST', headers: { 'Content-Type': 'application/json' }, signal: AbortSignal.timeout(5000),
+      body: JSON.stringify({ content: 'New in the showcase: **' + x.title + '** by ' + by + '\n' + link, embeds: [{ title: x.title, url: link, description: 'by ' + by, image: { url: b + x.src } }] }) });
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+  } catch (e) { x.announced = false; console.error('approval webhook failed:', e.message || e); }
+}
+// ---------- server packs ----------
+// A pack is one set that a server recommends to its members, shared as /pack/<id>.
+// Web: a logged-in person makes one at /packs. Bot: POST /api/bot/packs with BOT_KEY (the bot knows who owns the server).
+db.packs = Array.isArray(db.packs) ? db.packs : [];
+const BOT_KEY = process.env.BOT_KEY || '';
+const botOk = req => { const h = String(req.headers.authorization || ''); if (!BOT_KEY || !h.startsWith('Bearer ')) return false; const a = Buffer.from(h.slice(7)), b = Buffer.from(BOT_KEY); return a.length === b.length && crypto.timingSafeEqual(a, b); };
+const setNames = () => [...new Set(db.items.filter(i => !i.hidden).map(i => i.set))];
+const packView = x => ({ id: x.id, server: x.server, set: x.set, message: x.message || '' });
+function savePack(b, match, extra) {
+  const server = clean(b.server, 60), set = clean(b.set, 60), message = clean(b.message, 160);
+  if (!server) return { error: 'Give the server a name.' };
+  if (!setNames().includes(set)) return { error: 'Pick one of the sets.' };
+  let x = db.packs.find(match(server));
+  if (!x) { x = { id: crypto.randomBytes(4).toString('hex'), created: Date.now(), ...extra }; db.packs.unshift(x); }
+  Object.assign(x, { server, set, message });
+  return { pack: x };
+}
 const scView = (x, me) => ({ id: x.id, src: x.src, title: x.title, status: x.status, ...likeInfo(x.id, me), mine: !!(me && x.ownerId === me.id), by: userBy(x.ownerId) || { name: x.ownerName || 'Someone', username: null, avatar_url: null, badges: [] } });
 async function removeShowcase(id) {
   const x = db.showcase.find(i => i.id === id); if (!x) return;
@@ -359,6 +389,40 @@ async function removeShowcase(id) {
 
 const viewSeen = new Map();
 async function api(req, res, p, m) {
+  if (p === '/api/find' && m === 'GET') { // for the bot: /decoration <name>
+    const q = clean(new URL(req.url, 'http://x').searchParams.get('q'), 60).toLowerCase(), b = baseUrl(req);
+    const rank = i => { const t = i.title.toLowerCase(); return t === q ? 0 : t.startsWith(q) ? 1 : t.includes(q) ? 2 : i.set.toLowerCase().includes(q) ? 3 : 9; };
+    const hits = q ? db.items.filter(i => !i.hidden).map(i => [rank(i), i]).filter(h => h[0] < 9).sort((a, c) => a[0] - c[0]).map(h => h[1]) : [];
+    const one = hits[0] && { id: hits[0].id, title: hits[0].title, set: hits[0].set, image: b + hits[0].src, url: b + '/d/' + encodeURIComponent(hits[0].id) };
+    return json(res, 200, { found: !!one, ...one, others: hits.slice(1, 6).map(i => i.title), sets: one ? undefined : setNames() });
+  }
+  if (p === '/api/packs' && m === 'GET') { const me = userFromReq(req); return json(res, 200, { sets: setNames(), mine: me ? db.packs.filter(x => x.ownerId === me.id).map(packView) : [] }); }
+  if (p === '/api/packs' && m === 'POST') {
+    const me = userFromReq(req);
+    if (!me) return json(res, 401, { error: 'Log in with Yapin\u2019 first.' });
+    if (!sameOrigin(req)) return json(res, 403, { error: 'Bad origin' });
+    const b = await readJson(req), key = s => x => x.ownerId === me.id && x.server.toLowerCase() === s.toLowerCase();
+    if (!db.packs.some(key(clean(b.server, 60))) && db.packs.filter(x => x.ownerId === me.id).length >= 5) return json(res, 400, { error: 'You can have up to 5 packs.' });
+    const r = savePack(b, key, { ownerId: me.id }); if (r.error) return json(res, 400, { error: r.error });
+    await saveDb(); return json(res, 200, { ...packView(r.pack), url: baseUrl(req) + '/pack/' + r.pack.id });
+  }
+  if (p === '/api/bot/packs' && m === 'POST') {
+    if (!botOk(req)) return json(res, 401, { error: 'Bad bot key' });
+    const b = await readJson(req), sid = clean(b.serverId, 64); if (!sid) return json(res, 400, { error: 'serverId is required' });
+    const r = savePack(b, () => x => x.serverId === sid, { serverId: sid }); if (r.error) return json(res, 400, { error: r.error });
+    await saveDb(); return json(res, 200, { ...packView(r.pack), url: baseUrl(req) + '/pack/' + r.pack.id });
+  }
+  let pk;
+  if ((pk = /^\/api\/packs\/([a-f0-9]{8})$/.exec(p))) {
+    const x = db.packs.find(i => i.id === pk[1]); if (!x) return json(res, 404, { error: 'Not found' });
+    if (m === 'GET') return json(res, 200, { ...packView(x), items: db.items.filter(i => !i.hidden && i.set === x.set).map(i => ({ id: i.id, title: i.title, src: i.src })) });
+    if (m === 'DELETE') {
+      const me = userFromReq(req);
+      if (!sameOrigin(req)) return json(res, 403, { error: 'Bad origin' });
+      if (!(isAdmin(req) || (me && x.ownerId === me.id))) return json(res, 403, { error: 'Not yours' });
+      db.packs = db.packs.filter(i => i.id !== x.id); await saveDb(); return json(res, 200, { ok: true });
+    }
+  }
   if (p === '/api/partners' && m === 'GET') return json(res, 200, { partners: (db.partners || []).map(ptView) });
   if (p === '/api/trending' && m === 'GET') { // top decorations by opens + 3x likes; empty until people use the site
     const score = i => (db.views[i.id] || 0) + 3 * (db.likes[i.id] || []).length;
@@ -411,7 +475,7 @@ async function api(req, res, p, m) {
     ghTask(() => ghPut('uploads/' + file, f.body));
     const title = clean(parts.find(x => x.name === 'title' && x.filename === undefined)?.body.toString('utf8'), 60) || titleFrom(f.filename);
     const entry = { id: 'sc-' + id, src: '/uploads/' + file, file, title, ownerId: me.id, ownerName: me.display_name || me.username || '', status: db.settings.showcaseAuto ? 'approved' : 'pending', created: Date.now() };
-    db.showcase.unshift(entry); if (entry.status === 'approved') autoCreator(me.id); await saveDb();
+    db.showcase.unshift(entry); if (entry.status === 'approved') { autoCreator(me.id); await announce(entry, req); } await saveDb();
     return json(res, 200, scView(entry, me));
   }
   let sm;
@@ -556,7 +620,7 @@ async function api(req, res, p, m) {
   if ((am = /^\/api\/admin\/showcase\/([\w-]+)$/.exec(p))) {
     const x = db.showcase.find(i => i.id === am[1]);
     if (!x) return json(res, 404, { error: 'Not found' });
-    if (m === 'PATCH') { const b = await readJson(req); if (b.status === 'approved' || b.status === 'pending') x.status = b.status; if (b.status === 'approved' || b.clearReports) delete db.reports[x.id]; if (x.status === 'approved') autoCreator(x.ownerId); await saveDb(); return json(res, 200, scView(x, null)); }
+    if (m === 'PATCH') { const b = await readJson(req); if (b.status === 'approved' || b.status === 'pending') x.status = b.status; if (b.status === 'approved' || b.clearReports) delete db.reports[x.id]; if (x.status === 'approved') { autoCreator(x.ownerId); await announce(x, req); } await saveDb(); return json(res, 200, scView(x, null)); }
     if (m === 'DELETE') { await removeShowcase(x.id); return json(res, 200, { ok: true }); }
   }
   if (p === '/api/status' && m === 'GET')
@@ -761,7 +825,7 @@ async function handle(req, res) {
   if (p === '/robots.txt') return send(res, 200, `User-agent: *\nDisallow: /admin\nSitemap: ${baseUrl(req)}/sitemap.xml\n`, { 'Content-Type': 'text/plain; charset=utf-8' });
   if (p === '/sitemap.xml') {
     const b = baseUrl(req), esc = x => String(x).replace(/&/g, '&amp;').replace(/</g, '&lt;');
-    const urls = [b + '/', b + '/gallery', b + '/name-banners', b + '/about', b + '/partners', ...db.items.filter(i => !i.hidden).map(i => b + '/d/' + encodeURIComponent(i.id))];
+    const urls = [b + '/', b + '/gallery', b + '/name-banners', b + '/packs', b + '/about', b + '/partners', ...db.items.filter(i => !i.hidden).map(i => b + '/d/' + encodeURIComponent(i.id))];
     return send(res, 200, '<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n' + urls.map(u => '<url><loc>' + esc(u) + '</loc></url>').join('\n') + '\n</urlset>\n', { 'Content-Type': 'application/xml; charset=utf-8' });
   }
   if (p.startsWith('/d/')) { // one decoration: same page, but with a title and picture for link previews
@@ -782,7 +846,8 @@ async function handle(req, res) {
   if (p === '/gallery') return serveStatic(req, res, PUBLIC_DIR, 'gallery.html', 'no-cache');
   if (p === '/admin') return serveStatic(req, res, PUBLIC_DIR, 'admin.html', 'no-cache');
   if (p === '/about') return serveStatic(req, res, PUBLIC_DIR, 'about.html', 'no-cache');
-  if (p === '/name-banners') return serveStatic(req, res, PUBLIC_DIR, 'name-banners.html', 'no-cache');
+  if (p === '/packs' || /^\/pack\/[a-f0-9]{8}$/.test(p)) return serveStatic(req, res, PUBLIC_DIR, 'packs.html', 'no-cache');
+  if (p === '/name-banners') { res.writeHead(302, { Location: '/gallery#name-banners', ...SEC }); return res.end(); } // now a tab on the gallery page
   if (p === '/partners') return serveStatic(req, res, PUBLIC_DIR, 'partners.html', 'no-cache');
   if (p === '/signin') return serveStatic(req, res, PUBLIC_DIR, 'signin.html', 'no-cache');
   if (p.startsWith('/seed/')) return serveStatic(req, res, SEED_DIR, p.slice(6), 'public, max-age=86400');
@@ -820,5 +885,3 @@ server.listen(PORT, '0.0.0.0', () => console.log(`Gallery on :${PORT}  data=${DA
 process.on('uncaughtException', e => console.error('uncaught', e));
 process.on('unhandledRejection', e => console.error('unhandled', e));
 for (const sig of ['SIGTERM', 'SIGINT']) process.on(sig, () => { server.close(() => process.exit(0)); setTimeout(() => process.exit(0), 8000).unref(); });
-
-

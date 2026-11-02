@@ -83,17 +83,12 @@ function makeCard(i) {
   cardKeys(f, () => openModal(i));
   return f;
 }
-function reveal(root) { // cards fade up one after another as they scroll into view
-  if (!('IntersectionObserver' in window) || matchMedia('(prefers-reduced-motion:reduce)').matches) return;
-  const io = new IntersectionObserver(es => { for (const e of es) { if (!e.isIntersecting) continue; const c = e.target; io.unobserve(c); c.style.animationDelay = (c._d || 0) + 'ms'; c.classList.remove('pre'); c.classList.add('in'); c.addEventListener('animationend', () => { c.classList.remove('in'); c.style.animationDelay = ''; }, { once: true }); } }, { rootMargin: '0px 0px -4% 0px' });
-  let n = 0; for (const c of root.querySelectorAll('.card:not(.skel)')) { c.classList.add('pre'); c._d = (n++ % 8) * 45; io.observe(c); }
-}
 function skeletons(n) { const g = el('div', 'grid'); for (let k = 0; k < n; k++) { const f = el('div', 'card skel'); f.append(el('div', 'stage ld'), el('div', 'cap')); g.append(f); } return g; }
 function renderFavs() {
   const box = $('#favgrid'); box.replaceChildren();
   const mine = state.items.filter(i => i.liked);
   if (!mine.length) { box.append(emptyBox('No favorites yet', 'Tap the heart on any decoration to keep it here.', ['Browse the gallery', () => tab('gal')])); return; }
-  const g = el('div', 'grid'); for (const i of mine) g.append(makeCard(i)); box.append(g); reveal(box);
+  const g = el('div', 'grid'); for (const i of mine) g.append(makeCard(i)); box.append(g);
 }
 function render() {
   const counts = new Map();
@@ -133,7 +128,6 @@ function render() {
     grid.append(g);
     if (foldable) { const more = el('button', 'btn ghost sm more', folded ? 'Show all ' + list.length : 'Show less'); more.onclick = () => { if (folded) state.open.add(name); else state.open.delete(name); render(); }; grid.append(more); }
   }
-  reveal(grid);
   $('#count').textContent = shown.length + ' of ' + state.items.length + ' shown';
   const st = $('#stats'); if (st) { st.replaceChildren(); for (const [n, w] of [[state.items.length, 'decorations'], [counts.size, 'sets']]) { const s = el('span'); s.append(el('b', '', n), ' ' + w); st.append(s); } st.hidden = !state.items.length; }
 }
@@ -175,7 +169,7 @@ function openModal(i) {
   if ($('#modal').hidden) lastCard = document.activeElement; $('#modal').hidden = false; $('#close').focus();
 }
 let lastCard = null, modalItem = null;
-const closeModal = () => { const mo = $('#modal'); if (mo.hidden || mo.classList.contains('out')) return; const done = () => { mo.hidden = true; mo.classList.remove('out'); }; if (matchMedia('(prefers-reduced-motion:reduce)').matches) done(); else { mo.classList.add('out'); setTimeout(done, 170); } if (location.pathname.startsWith('/d/') || location.hash.startsWith('#d/')) history.replaceState(null, '', '/gallery' + location.search); else if (location.hash.startsWith('#showcase/')) history.replaceState(null, '', '#showcase'); if (lastCard && lastCard.focus) lastCard.focus(); };
+const closeModal = () => { $('#modal').hidden = true; if (location.pathname.startsWith('/d/') || location.hash.startsWith('#d/')) history.replaceState(null, '', '/gallery' + location.search); else if (location.hash.startsWith('#showcase/')) history.replaceState(null, '', '#showcase'); if (lastCard && lastCard.focus) lastCard.focus(); };
 $('#close').onclick = closeModal; $('#copy').onclick = copyLink;
 $('#modal').onclick = e => { if (e.target.id === 'modal') closeModal(); };
 addEventListener('keydown', e => { if (e.key === 'Escape') closeModal(); });
@@ -230,15 +224,15 @@ boot();
 
 // ---------- showcase ----------
 function tab(which) {
-  const show = which === 'show', fav = which === 'fav';
-  $('#galwrap').hidden = show || fav; $('#showwrap').hidden = !show; $('#favwrap').hidden = !fav;
-  $('#tab-gal').classList.toggle('on', which === 'gal' || !which); $('#tab-fav').classList.toggle('on', fav); $('#tab-show').classList.toggle('on', show);
+  const show = which === 'show', fav = which === 'fav', ban = which === 'ban';
+  $('#galwrap').hidden = show || fav || ban; $('#showwrap').hidden = !show; $('#favwrap').hidden = !fav; $('#banwrap').hidden = !ban;
+  $('#tab-gal').classList.toggle('on', which === 'gal' || !which); $('#tab-ban').classList.toggle('on', ban); $('#tab-fav').classList.toggle('on', fav); $('#tab-show').classList.toggle('on', show);
   const base = location.pathname.startsWith('/d/') ? '/gallery' : location.pathname;
-  history.replaceState(null, '', show ? base + location.search + '#showcase' : fav ? base + location.search + '#favorites' : base + location.search);
+  history.replaceState(null, '', ban ? base + location.search + '#name-banners' : show ? base + location.search + '#showcase' : fav ? base + location.search + '#favorites' : base + location.search);
   if (fav) renderFavs();
   if (show) return loadShowcase();
 }
-$('#tab-gal').onclick = () => tab('gal'); $('#tab-show').onclick = () => tab('show'); $('#tab-fav').onclick = () => tab('fav');
+$('#tab-gal').onclick = () => tab('gal'); $('#tab-show').onclick = () => tab('show'); $('#tab-fav').onclick = () => tab('fav'); $('#tab-ban').onclick = () => tab('ban');
 function byLine(by) {
   const d = el('div', 'by');
   if (by.avatar_url) { const im = el('img'); im.src = by.avatar_url; im.alt = ''; im.referrerPolicy = 'no-referrer'; d.append(im); } else d.append(el('div', 'ini', (by.name || '?').slice(0, 1).toUpperCase()));
@@ -291,5 +285,6 @@ $('#sh-go').onclick = async () => {
     $('#sh-file').value = ''; $('#sh-title').value = ''; loadShowcase();
   } catch (e) { say(e.message, 'err'); }
 };
-if (location.hash === '#showcase') tab('show');
+if (location.hash === '#name-banners') tab('ban');
+else if (location.hash === '#showcase') tab('show');
 else if (location.hash === '#favorites') { const w = setInterval(() => { if (ME) { clearInterval(w); if (ME.user) tab('fav'); } }, 200); setTimeout(() => clearInterval(w), 5000); }
