@@ -10,4 +10,4 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Ping website
-        run: curl -fsS --max-time 60 https://yourm821.onrender.com/
+        run: curl -fsS --max-time 60 https://decoration-instanity.onrender.com/

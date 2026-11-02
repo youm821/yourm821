@@ -343,10 +343,12 @@ async function loadPopular() {
   for (const [title, list, key] of [['Most viewed', d.byViews, 'views'], ['Most loved', d.byLikes, 'likes']]) {
     if (!list.length) continue;
     const h = el('h4', '', title); h.style.margin = '14px 0 8px'; box.append(h);
-    const g = el('div', 'users');
+    const max = Math.max(...list.map(i => i[key])), g = el('div', 'bars');
     for (const i of list) {
-      const c = el('div', 'u'); const im = el('img'); im.src = i.src; im.alt = ''; im.style.borderRadius = '8px'; c.append(im);
-      const t = el('div', 't'); t.append(el('b', '', i.title), el('span', '', i.set + ' \u00b7 ' + i[key] + ' ' + key)); c.append(t); g.append(c);
+      const row = el('div', 'brow'); const im = el('img'); im.src = i.src; im.alt = ''; row.append(im);
+      const mid = el('div', 'bmid'); mid.append(el('b', '', i.title), el('small', '', i.set));
+      const track = el('div', 'btrack'), fill = el('div', 'bfill ' + key); fill.style.width = Math.max(4, Math.round(i[key] / max * 100)) + '%'; track.append(fill); mid.append(track);
+      row.append(mid, el('span', 'bnum', String(i[key]))); g.append(row);
     }
     box.append(g);
   }
@@ -357,10 +359,11 @@ async function loadShowcase() {
   const d = await api('GET', '/api/admin/showcase'); const box = $('#sc-list'); box.replaceChildren();
   $('#sc-n').textContent = '(' + d.items.length + ')';
   if (!d.items.length) box.append(el('div', 'empty', 'Nothing submitted yet.'));
-  for (const i of d.items) {
+  for (const i of [...d.items].sort((a, b) => (b.reports || 0) - (a.reports || 0))) {
     const c = el('div', 'u'); const im = el('img'); im.src = i.src; im.alt = ''; im.style.borderRadius = '8px'; c.append(im);
     const t = el('div', 't'); t.append(el('b', '', i.title), el('span', '', 'by ' + i.by.name)); c.append(t);
     c.append(el('span', 'status ' + (i.status === 'approved' ? 'ok' : 'wait'), i.status === 'approved' ? 'live' : 'waiting'));
+    if (i.reports) { const fl = el('span', 'status bad', i.reports + (i.reports === 1 ? ' report' : ' reports')); c.append(fl); const ok = el('button', 'btn ghost sm', 'Dismiss'); ok.title = 'Clear the reports and keep it as is'; ok.onclick = async () => { await api('PATCH', '/api/admin/showcase/' + i.id, { clearReports: true }); loadShowcase(); }; c.append(ok); }
     const tog = el('button', 'btn ghost sm', i.status === 'approved' ? 'Hide' : 'Approve');
     tog.onclick = async () => { await api('PATCH', '/api/admin/showcase/' + i.id, { status: i.status === 'approved' ? 'pending' : 'approved' }); loadShowcase(); };
     const rm = el('button', 'btn danger sm', 'Delete'); rm.onclick = async () => { if (!confirm('Delete "' + i.title + '"?')) return; await api('DELETE', '/api/admin/showcase/' + i.id); loadShowcase(); };

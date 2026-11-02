@@ -11,4 +11,4 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Visit the site
-        run: curl -fsS -m 40 --retry 3 --retry-delay 15 "${{ vars.SITE_URL || 'https://yourm821.onrender.com' }}/healthz"
+        run: curl -fsS -m 40 --retry 3 --retry-delay 15 "${{ vars.SITE_URL || 'https://decoration-instanity.onrender.com' }}/healthz"

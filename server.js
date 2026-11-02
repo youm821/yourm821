@@ -125,6 +125,7 @@ await restoreFromCloud();
 db.partners = db.partners || [];
 db.likes = db.likes && typeof db.likes === 'object' ? db.likes : {}; // item id -> [user ids]
 db.views = db.views && typeof db.views === 'object' ? db.views : {}; // item id -> times opened
+db.reports = db.reports && typeof db.reports === 'object' ? db.reports : {}; // showcase id -> [user ids who reported it]
 let viewsDirty = false;
 setInterval(() => { if (viewsDirty) { viewsDirty = false; saveDb(); } }, 60000).unref();
 db.settings = { title: 'Pixel Decorations', subtitle: '', ...db.settings };
@@ -353,7 +354,7 @@ async function removeShowcase(id) {
   const x = db.showcase.find(i => i.id === id); if (!x) return;
   try { await fsp.unlink(path.join(UPLOAD_DIR, path.basename(x.file))); } catch { /* gone */ }
   ghTask(() => ghDel('uploads/' + path.basename(x.file)));
-  db.showcase = db.showcase.filter(i => i.id !== id); await saveDb();
+  db.showcase = db.showcase.filter(i => i.id !== id); delete db.reports[id]; await saveDb();
 }
 
 const viewSeen = new Map();
@@ -421,6 +422,18 @@ async function api(req, res, p, m) {
     await removeShowcase(x.id); return json(res, 200, { ok: true });
   }
 
+  if ((sm = /^\/api\/showcase\/([\w-]+)\/report$/.exec(p)) && m === 'POST') {
+    const me = userFromReq(req);
+    if (!me) return json(res, 401, { error: 'Log in with Yapin\u2019 to report work.' });
+    if (!sameOrigin(req)) return json(res, 403, { error: 'Bad origin' });
+    const x = db.showcase.find(i => i.id === sm[1] && i.status === 'approved' && !ownerBanned(i));
+    if (!x || x.ownerId === me.id) return json(res, 404, { error: 'Not found' });
+    const r = db.reports[x.id] || (db.reports[x.id] = []);
+    if (!r.includes(me.id)) r.push(me.id);
+    let hidden = false;
+    if (r.length >= 3) { x.status = 'pending'; hidden = true; } // pulled back to the review queue until you look at it
+    await saveDb(); return json(res, 200, { ok: true, hidden });
+  }
   const known = id => db.items.some(i => i.id === id && !i.hidden) || db.showcase.some(i => i.id === id && i.status === 'approved' && !ownerBanned(i));
   if (p === '/api/like' && m === 'POST') {
     const me = userFromReq(req);
@@ -504,7 +517,7 @@ async function api(req, res, p, m) {
   }
   if (p === '/api/admin/users' && m === 'GET')
     return json(res, 200, { login: loginOn, redirectUrl: baseUrl(req) + CB_PATH, yapin: YAPIN, hasId: !!Y_ID, hasSecret: !!Y_SECRET, lastError: loginDiag.error, lastErrorAt: loginDiag.at, owner: isOwner(req), badgeList: BADGES, users: [...db.users].sort((a, b) => (b.lastLogin || 0) - (a.lastLogin || 0)).map(u => ({ ...pubUser(u), admin: !!u.admin, banned: !!u.banned, firstSeen: u.firstSeen, lastLogin: u.lastLogin })) });
-  if (p === '/api/admin/showcase' && m === 'GET') return json(res, 200, { auto: !!db.settings.showcaseAuto, items: db.showcase.map(x => scView(x, null)) });
+  if (p === '/api/admin/showcase' && m === 'GET') return json(res, 200, { auto: !!db.settings.showcaseAuto, items: db.showcase.map(x => ({ ...scView(x, null), reports: (db.reports[x.id] || []).length })) });
   let am;
   if (p === '/api/admin/users/grant-og' && m === 'POST') {
     if (!isOwner(req)) return json(res, 403, { error: 'Only the main admin (password login) can give badges.' });
@@ -543,7 +556,7 @@ async function api(req, res, p, m) {
   if ((am = /^\/api\/admin\/showcase\/([\w-]+)$/.exec(p))) {
     const x = db.showcase.find(i => i.id === am[1]);
     if (!x) return json(res, 404, { error: 'Not found' });
-    if (m === 'PATCH') { const b = await readJson(req); if (b.status === 'approved' || b.status === 'pending') x.status = b.status; if (x.status === 'approved') autoCreator(x.ownerId); await saveDb(); return json(res, 200, scView(x, null)); }
+    if (m === 'PATCH') { const b = await readJson(req); if (b.status === 'approved' || b.status === 'pending') x.status = b.status; if (b.status === 'approved' || b.clearReports) delete db.reports[x.id]; if (x.status === 'approved') autoCreator(x.ownerId); await saveDb(); return json(res, 200, scView(x, null)); }
     if (m === 'DELETE') { await removeShowcase(x.id); return json(res, 200, { ok: true }); }
   }
   if (p === '/api/status' && m === 'GET')
@@ -745,6 +758,26 @@ async function handle(req, res) {
   if ((p === CB_PATH || p === '/callback' || p === '/auth/callback') && m === 'GET') return finishLogin(req, res, new URL(req.url, 'http://x'));
   if (p.startsWith('/api/')) return api(req, res, p, m);
   if (m !== 'GET' && m !== 'HEAD') return send(res, 405, 'Method not allowed');
+  if (p === '/robots.txt') return send(res, 200, `User-agent: *\nDisallow: /admin\nSitemap: ${baseUrl(req)}/sitemap.xml\n`, { 'Content-Type': 'text/plain; charset=utf-8' });
+  if (p === '/sitemap.xml') {
+    const b = baseUrl(req), esc = x => String(x).replace(/&/g, '&amp;').replace(/</g, '&lt;');
+    const urls = [b + '/', b + '/about', b + '/partners', ...db.items.filter(i => !i.hidden).map(i => b + '/d/' + encodeURIComponent(i.id))];
+    return send(res, 200, '<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n' + urls.map(u => '<url><loc>' + esc(u) + '</loc></url>').join('\n') + '\n</urlset>\n', { 'Content-Type': 'application/xml; charset=utf-8' });
+  }
+  if (p.startsWith('/d/')) { // one decoration: same page, but with a title and picture for link previews
+    let id = ''; try { id = decodeURIComponent(p.slice(3)); } catch { /* bad escape */ }
+    const it = db.items.find(i => i.id === id && !i.hidden);
+    let html; try { html = await fsp.readFile(path.join(PUBLIC_DIR, 'index.html'), 'utf8'); } catch { return send(res, 404, 'Not found'); }
+    if (it) {
+      const e = x => String(x).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;'), b = baseUrl(req);
+      const title = e(it.title + ' \u00b7 ' + (db.settings.title || 'Pixel Decorations')), desc = e('A ' + it.set + ' pixel avatar decoration. Try it on your picture.');
+      html = html.replace(/<title>[\s\S]*?<\/title>/, '<title>' + title + '</title>')
+        .replace(/<meta property="og:title"[^>]*>/, '<meta property="og:title" content="' + title + '">')
+        .replace(/<meta property="og:description"[^>]*>/, '<meta property="og:description" content="' + desc + '">')
+        .replace(/<meta property="og:image"[^>]*>/, '<meta property="og:image" content="' + e(b + it.src) + '"><meta property="og:url" content="' + e(b + '/d/' + encodeURIComponent(it.id)) + '">');
+    }
+    return send(res, it ? 200 : 404, html, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-cache' });
+  }
   if (p === '/') return serveStatic(req, res, PUBLIC_DIR, 'index.html', 'no-cache');
   if (p === '/admin') return serveStatic(req, res, PUBLIC_DIR, 'admin.html', 'no-cache');
   if (p === '/about') return serveStatic(req, res, PUBLIC_DIR, 'about.html', 'no-cache');

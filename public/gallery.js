@@ -22,6 +22,7 @@ function likeBtn(i) {
       const d = await r.json(); i.likes = d.likes; i.liked = d.liked;
       b.className = 'like' + (i.liked ? ' on' : ''); b.textContent = '\u2665 ' + i.likes;
       b.title = i.liked ? 'Remove your like' : 'Like this';
+      if (!$('#favwrap').hidden) renderFavs();
     } catch { /* offline: ignore */ }
   };
   return b;
@@ -31,7 +32,7 @@ function setPreviewPhoto(url) {
 }
 async function loadAccount() {
   let me; try { me = await (await fetch('/api/me', { credentials: 'same-origin' })).json(); } catch { return; }
-  ME = me;
+  ME = me; $('#tab-fav').hidden = !me.user;
   const box = $('#acct'); box.replaceChildren();
   if (me.user) {
     const name = me.user.display_name || me.user.username || 'You';
@@ -53,7 +54,7 @@ function showNote() {
 }
 async function load() {
   const d = await (await fetch('/api/items', { cache: 'no-cache' })).json();
-  document.title = d.settings.title;
+  if (!location.pathname.startsWith('/d/')) document.title = d.settings.title;
   $('#title').textContent = d.settings.title;
   $('#subtitle').textContent = d.settings.subtitle || '';
   try { applyBanner($('#banner'), d.settings); $('#hero').classList.toggle('hasbanner', !$('#banner').hidden); } catch { /* banner.js missing: the gallery still works */ }
@@ -67,6 +68,26 @@ async function load() {
   try { state.trending = (await (await fetch('/api/trending', { cache: 'no-cache' })).json()).ids || []; } catch { /* optional */ }
   render();
   openFromHash();
+}
+function emptyBox(title, sub, action) {
+  const d = el('div', 'empty rich'); d.append(el('b', '', title), el('span', '', sub));
+  if (action) { const b = el('button', 'btn ghost sm', action[0]); b.type = 'button'; b.onclick = action[1]; d.append(b); }
+  return d;
+}
+function makeCard(i) {
+  const f = tint(el('figure', 'card'), i.set);
+  const st = el('div', 'stage ld'); st.append(el('div', 'av'));
+  const img = el('img'); img.src = i.src; img.alt = i.title; img.loading = 'lazy'; img.decoding = 'async'; img.onload = img.onerror = () => st.classList.remove('ld'); st.append(img);
+  f.append(st, el('figcaption', '', i.title), likeBtn(i));
+  cardKeys(f, () => openModal(i));
+  return f;
+}
+function skeletons(n) { const g = el('div', 'grid'); for (let k = 0; k < n; k++) { const f = el('div', 'card skel'); f.append(el('div', 'stage ld'), el('div', 'cap')); g.append(f); } return g; }
+function renderFavs() {
+  const box = $('#favgrid'); box.replaceChildren();
+  const mine = state.items.filter(i => i.liked);
+  if (!mine.length) { box.append(emptyBox('No favorites yet', 'Tap the heart on any decoration to keep it here.', ['Browse the gallery', () => tab('gal')])); return; }
+  const g = el('div', 'grid'); for (const i of mine) g.append(makeCard(i)); box.append(g);
 }
 function render() {
   const counts = new Map();
@@ -83,8 +104,9 @@ function render() {
   const q = state.q.toLowerCase();
   const shown = state.items.filter(i => (state.set === 'All' || i.set === state.set) && (!q || (i.title + ' ' + i.set).toLowerCase().includes(q)));
   if (state.sort === 'loved') shown.sort((a, b) => (b.likes || 0) - (a.likes || 0));
+  else if (state.sort === 'az') shown.sort((a, b) => a.title.localeCompare(b.title));
   const grid = $('#grid'); grid.replaceChildren();
-  if (!shown.length) grid.append(el('div', 'empty', 'Nothing here yet.'));
+  if (!shown.length) grid.append(emptyBox(q ? 'No decorations match \u201c' + state.q + '\u201d' : 'Nothing in this set yet', q ? 'Try a shorter word, or clear the search.' : 'Pick another set above.', q ? ['Clear search', () => { state.q = ''; $('#q').value = ''; render(); }] : ['Show all sets', () => { state.set = 'All'; render(); }]));
   const groups = new Map();
   for (const i of shown) { if (!groups.has(i.set)) groups.set(i.set, []); groups.get(i.set).push(i); }
   if (state.set === 'All' && !q && state.sort === 'default') { // highlight rows above the sets
@@ -99,11 +121,7 @@ function render() {
     const foldable = state.set === 'All' && !q && list.length > 8, folded = foldable && !state.open.has(name);
     const g = el('div', 'grid');
     for (const i of folded ? list.slice(0, 8) : list) {
-      const f = tint(el('figure', 'card'), i.set);
-      const st = el('div', 'stage ld'); st.append(el('div', 'av'));
-      const img = el('img'); img.src = i.src; img.alt = i.title; img.loading = 'lazy'; img.onload = img.onerror = () => st.classList.remove('ld'); st.append(img);
-      f.append(st, el('figcaption', '', i.title), likeBtn(i));
-      cardKeys(f, () => openModal(i));
+      const f = makeCard(i);
       g.append(f);
     }
     grid.append(g);
@@ -117,9 +135,9 @@ function cardKeys(f, open) {
   f.onclick = open;
   f.onkeydown = e => { if (e.target === f && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); open(); } };
 }
-const shareHash = id => !id ? '' : (String(id).startsWith('sc-') ? '#showcase/' : '#d/') + encodeURIComponent(id);
+const shareHash = id => !id ? '' : (String(id).startsWith('sc-') ? '/#showcase/' : '/d/') + encodeURIComponent(id);
 function openFromHash() {
-  let m = /^#d\/(.+)$/.exec(location.hash);
+  let m = /^\/d\/([^/]+)$/.exec(location.pathname) || /^#d\/(.+)$/.exec(location.hash);
   if (m) { let id; try { id = decodeURIComponent(m[1]); } catch { return; } const it = state.items.find(x => x.id === id); if (it) openModal(it); return; }
   m = /^#showcase\/(.+)$/.exec(location.hash);
   if (m) {
@@ -129,7 +147,7 @@ function openFromHash() {
 }
 addEventListener('hashchange', openFromHash);
 async function copyLink() {
-  const b = $('#copy'), url = location.origin + '/' + b.dataset.hash;
+  const b = $('#copy'), url = location.origin + b.dataset.hash;
   try { await navigator.clipboard.writeText(url); b.textContent = 'Link copied'; }
   catch { prompt('Copy this link:', url); b.textContent = 'Copy link'; return; }
   setTimeout(() => { b.textContent = 'Copy link'; }, 1800);
@@ -139,15 +157,47 @@ function openModal(i) {
   $('#mimg').src = i.src; $('#mimg').alt = i.title;
   $('#mtitle').textContent = i.title; $('#mset').textContent = i.set;
   const sheet = document.querySelector('#modal .sheet'); sheet.classList.remove('setc'); sheet.style.removeProperty('--h'); if (i.set && !String(i.set).startsWith('by ')) tint(sheet, i.set);
+  modalItem = i; resetTryOn();
+  const gal = state.items.some(x => x.id === i.id), sameSet = gal ? state.items.filter(x => x.set === i.set) : [];
+  for (const id of ['#prev', '#next']) $(id).hidden = sameSet.length < 2;
+  const rel = []; if (sameSet.length > 1) { const at = sameSet.findIndex(x => x.id === i.id); for (let k = 1; k < sameSet.length && rel.length < 6; k++) rel.push(sameSet[(at + k) % sameSet.length]); }
+  const rg = $('#rgrid'); rg.replaceChildren(); $('#related').hidden = !rel.length; $('#rset').textContent = i.set;
+  for (const r of rel) { const b = el('button', 'rel'); b.type = 'button'; b.title = r.title; tint(b, r.set); const im = el('img'); im.src = r.src; im.alt = r.title; im.loading = 'lazy'; b.append(el('div', 'av'), im); b.onclick = () => openModal(r); rg.append(b); }
   const cp = $('#copy'), sh = shareHash(i.id); cp.hidden = !sh; cp.dataset.hash = sh; cp.textContent = 'Copy link';
   if (sh) history.replaceState(null, '', sh);
-  lastCard = document.activeElement; $('#modal').hidden = false; $('#close').focus();
+  if ($('#modal').hidden) lastCard = document.activeElement; $('#modal').hidden = false; $('#close').focus();
 }
-let lastCard = null;
-const closeModal = () => { $('#modal').hidden = true; if (location.hash.startsWith('#d/')) history.replaceState(null, '', location.pathname + location.search); else if (location.hash.startsWith('#showcase/')) history.replaceState(null, '', '#showcase'); if (lastCard && lastCard.focus) lastCard.focus(); };
+let lastCard = null, modalItem = null;
+const closeModal = () => { $('#modal').hidden = true; if (location.pathname.startsWith('/d/') || location.hash.startsWith('#d/')) history.replaceState(null, '', '/' + location.search); else if (location.hash.startsWith('#showcase/')) history.replaceState(null, '', '#showcase'); if (lastCard && lastCard.focus) lastCard.focus(); };
 $('#close').onclick = closeModal; $('#copy').onclick = copyLink;
 $('#modal').onclick = e => { if (e.target.id === 'modal') closeModal(); };
 addEventListener('keydown', e => { if (e.key === 'Escape') closeModal(); });
+// try it on: colour or your own picture, kept in this browser only
+let tryUrl = null;
+function setTry(bg) { const st = document.querySelector('#modal .stage'); st.style.setProperty('--photo-bg', bg); $('#tryreset').hidden = false; }
+function resetTryOn() { const st = document.querySelector('#modal .stage'); st.style.removeProperty('--photo-bg'); $('#tryreset').hidden = true; $('#tryfile').value = ''; if (tryUrl) { URL.revokeObjectURL(tryUrl); tryUrl = null; } }
+document.querySelectorAll('#tryon .sw button').forEach(b => { b.onclick = () => setTry(b.dataset.bg); });
+$('#tryreset').onclick = resetTryOn;
+$('#tryfile').onchange = e => {
+  const f = e.target.files[0]; if (!f) return;
+  if (!/^image\//.test(f.type) || f.size > 15 * 1048576) { alert('Please choose a picture under 15 MB.'); e.target.value = ''; return; }
+  if (tryUrl) URL.revokeObjectURL(tryUrl); tryUrl = URL.createObjectURL(f); setTry('url("' + tryUrl + '") center/cover no-repeat');
+};
+// previous / next inside the same set
+function step(dir) {
+  if (!modalItem || $('#modal').hidden) return;
+  const list = state.items.filter(x => x.set === modalItem.set); if (list.length < 2) return;
+  const at = list.findIndex(x => x.id === modalItem.id); openModal(list[(at + dir + list.length) % list.length]);
+}
+$('#prev').onclick = () => step(-1); $('#next').onclick = () => step(1);
+// surprise me
+$('#rand').onclick = () => { const list = state.items.filter(i => (state.set === 'All' || i.set === state.set)); if (list.length) openModal(list[Math.floor(Math.random() * list.length)]); };
+// keyboard: / searches, arrows browse the open preview
+addEventListener('keydown', e => {
+  const typing = /^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement && document.activeElement.tagName);
+  if (e.key === '/' && !typing && $('#modal').hidden && !$('#galwrap').hidden) { e.preventDefault(); $('#q').focus(); }
+  else if (!$('#modal').hidden && !typing && (e.key === 'ArrowLeft' || e.key === 'ArrowRight')) step(e.key === 'ArrowLeft' ? -1 : 1);
+});
 $('#q').oninput = e => { state.q = e.target.value; render(); };
 $('#sort').value = state.sort; if ($('#sort').value !== state.sort) state.sort = 'default';
 $('#sort').onchange = e => { state.sort = e.target.value; try { localStorage.setItem('sort', state.sort); } catch { /* ignore */ } render(); };
@@ -165,17 +215,23 @@ const topBtn = $('#totop');
 addEventListener('scroll', () => { topBtn.hidden = scrollY < 700; }, { passive: true });
 topBtn.onclick = () => scrollTo({ top: 0, behavior: 'smooth' });
 showNote();
-load().then(loadAccount).then(() => { if (state.items.length) render(); });
+$('#grid').replaceChildren(skeletons(12));
+const boot = () => load().then(loadAccount).then(() => { if (state.items.length) render(); }).catch(() => {
+  $('#grid').replaceChildren(emptyBox('Could not load the gallery', 'Check your connection. If the site was asleep, give it a few seconds.', ['Try again', () => { $('#grid').replaceChildren(skeletons(12)); boot(); }]));
+});
+boot();
 
 // ---------- showcase ----------
 function tab(which) {
-  const show = which === 'show';
-  $('#galwrap').hidden = show; $('#showwrap').hidden = !show;
-  $('#tab-gal').classList.toggle('on', !show); $('#tab-show').classList.toggle('on', show);
-  history.replaceState(null, '', show ? '#showcase' : location.pathname + location.search);
+  const show = which === 'show', fav = which === 'fav';
+  $('#galwrap').hidden = show || fav; $('#showwrap').hidden = !show; $('#favwrap').hidden = !fav;
+  $('#tab-gal').classList.toggle('on', which === 'gal' || !which); $('#tab-fav').classList.toggle('on', fav); $('#tab-show').classList.toggle('on', show);
+  const base = location.pathname.startsWith('/d/') ? '/' : location.pathname;
+  history.replaceState(null, '', show ? base + location.search + '#showcase' : fav ? base + location.search + '#favorites' : base + location.search);
+  if (fav) renderFavs();
   if (show) return loadShowcase();
 }
-$('#tab-gal').onclick = () => tab('gal'); $('#tab-show').onclick = () => tab('show');
+$('#tab-gal').onclick = () => tab('gal'); $('#tab-show').onclick = () => tab('show'); $('#tab-fav').onclick = () => tab('fav');
 function byLine(by) {
   const d = el('div', 'by');
   if (by.avatar_url) { const im = el('img'); im.src = by.avatar_url; im.alt = ''; im.referrerPolicy = 'no-referrer'; d.append(im); } else d.append(el('div', 'ini', (by.name || '?').slice(0, 1).toUpperCase()));
@@ -189,7 +245,7 @@ async function loadShowcase() {
   if (ME.user) { const b = el('button', 'btn', 'Share your work'); b.onclick = () => { $('#shareForm').hidden = !$('#shareForm').hidden; }; box.append(b); }
   else if (ME.login) { const a = el('a', 'btn', LOGIN); a.href = '/signin'; box.append(a); }
   const grid = $('#showgrid'); grid.replaceChildren();
-  if (!d.items.length) { grid.append(el('div', 'empty', 'Nothing shared yet. Be the first!')); return; }
+  if (!d.items.length) { grid.append(emptyBox('Nothing shared yet', ME.user ? 'Be the first to share your pixel art.' : 'Log in with Yapin\u2019 to share the first one.', ME.user ? ['Share your work', () => { $('#shareForm').hidden = false; $('#sh-title').focus(); }] : (ME.login ? ['Log in', () => { location.href = '/signin'; }] : null))); return; }
   const g = el('div', 'grid');
   for (const i of d.items) {
     const f = el('figure', 'card'); const st = el('div', 'stage'); st.append(el('div', 'av'));
@@ -201,6 +257,14 @@ async function loadShowcase() {
       const del = el('button', 'btn danger sm x2', 'Delete');
       del.onclick = async e => { e.stopPropagation(); if (!confirm('Delete "' + i.title + '"?')) return; await fetch('/api/showcase/' + i.id, { method: 'DELETE', credentials: 'same-origin' }); loadShowcase(); };
       f.append(del);
+    } else if (ME.user && i.status === 'approved') {
+      const rp = el('button', 'linkbtn x2 report', 'Report'); rp.type = 'button'; rp.title = 'Tell the site owner something is wrong with this work';
+      rp.onclick = async e => {
+        e.stopPropagation(); if (!confirm('Report "' + i.title + '" to the site owner?')) return;
+        try { const r = await fetch('/api/showcase/' + i.id + '/report', { ...JSON_POST }); const j = await r.json().catch(() => ({})); if (!r.ok) throw new Error(j.error || 'Could not send');
+          rp.textContent = 'Reported'; rp.disabled = true; if (j.hidden) loadShowcase(); } catch (err) { rp.textContent = err.message; }
+      };
+      f.append(rp);
     }
     cardKeys(f, () => openModal({ id: i.status === 'approved' ? i.id : null, src: i.src, title: i.title, set: 'by ' + i.by.name }));
     g.append(f);
@@ -221,7 +285,4 @@ $('#sh-go').onclick = async () => {
   } catch (e) { say(e.message, 'err'); }
 };
 if (location.hash === '#showcase') tab('show');
-
-// Discourage saving: no right-click menu or dragging on images
-document.addEventListener('contextmenu', e => { if (e.target.tagName === 'IMG') e.preventDefault(); });
-document.addEventListener('dragstart', e => { if (e.target.tagName === 'IMG') e.preventDefault(); });
+else if (location.hash === '#favorites') { const w = setInterval(() => { if (ME) { clearInterval(w); if (ME.user) tab('fav'); } }, 200); setTimeout(() => clearInterval(w), 5000); }

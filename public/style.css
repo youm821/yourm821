@@ -295,3 +295,50 @@ h2.set.setc span{border-color:color-mix(in srgb,var(--sc) 45%,var(--line));color
 .sheet.setc{border-top:3px solid var(--sc)}
 .sheet.setc .stage::before{content:"";position:absolute;inset:0;background:radial-gradient(circle at 50% 108%,color-mix(in srgb,var(--sc) 30%,transparent),transparent 68%)}
 .sheet.setc #mset{color:var(--sc-text);border-color:color-mix(in srgb,var(--sc) 55%,var(--line))}
+
+/* ---------- round 3: favorites, try-on, related, empty states, admin chart ---------- */
+.tab[hidden]{display:none}
+.navrow{display:flex;justify-content:space-between;gap:var(--s-2);margin-top:var(--s-3)}
+.navrow .btn[hidden]{display:none}
+.sheet #copy{margin:var(--s-2) 0 var(--s-3)}
+.tryon{display:flex;flex-wrap:wrap;align-items:center;gap:var(--s-2) var(--s-3);padding:var(--s-3);margin-top:var(--s-3);border:1px solid var(--line);border-radius:var(--r-lg);background:var(--bg)}
+.tryon .tl{font-size:var(--fs-xs);font-weight:700;letter-spacing:.04em;text-transform:uppercase;color:var(--mute);width:100%}
+.sw{display:flex;gap:var(--s-2)}
+.sw button{width:26px;height:26px;border-radius:50%;border:2px solid var(--line);background:var(--c);cursor:pointer;padding:0}
+.sw button:hover{border-color:var(--text)}
+.tryfile{margin:0;cursor:pointer}
+.trynote{width:100%;color:var(--mute);font-size:var(--fs-xs)}
+.related{margin-top:var(--s-4)}
+.related h3{margin:0 0 var(--s-2);font-size:var(--fs-sm);color:var(--mute);font-weight:600}
+.related h3 span{color:var(--text)}
+.rgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(64px,1fr));gap:var(--s-2)}
+.rel{position:relative;aspect-ratio:1;padding:0;border-radius:var(--r-md);overflow:hidden;cursor:pointer;border:1px solid var(--line);background:conic-gradient(var(--chk1) 25%,var(--chk2) 0 50%,var(--chk1) 0 75%,var(--chk2) 0) 0 0/10px 10px}
+.rel:hover,.rel:focus-visible{border-color:var(--sc,var(--accent))}
+.rel .av{position:absolute;left:16.4%;top:16.4%;width:67.2%;height:67.2%;border-radius:50%;background:var(--photo-bg,radial-gradient(circle at 35% 30%,var(--av-1),var(--av-2)))}
+.rel img{position:absolute;inset:0;width:100%;height:100%}
+/* skeleton + empty states */
+.card.skel{cursor:default;pointer-events:none;border-top-width:1px}
+.card.skel .cap{height:12px;width:60%;margin-top:var(--s-3);border-radius:var(--r-sm);background:var(--line);animation:pulse 1.1s ease-in-out infinite}
+.card.skel .stage.ld{background:var(--line)}
+.empty.rich{display:flex;flex-direction:column;align-items:center;gap:var(--s-2)}
+.empty.rich b{color:var(--text);font-size:var(--fs-lg)}
+.empty.rich .btn{margin-top:var(--s-2)}
+noscript .empty{padding:var(--s-6)}
+/* report link on showcase cards */
+.report{font-size:var(--fs-xs);margin-top:var(--s-2);color:var(--mute)}
+.report:hover{color:var(--err)}
+.report:disabled{text-decoration:none;cursor:default}
+.status.bad{color:var(--err);border-color:var(--err-line)}
+/* admin chart */
+.bars{display:grid;gap:var(--s-2)}
+.brow{display:grid;grid-template-columns:40px 1fr auto;gap:var(--s-3);align-items:center;background:var(--bg);border:1px solid var(--line);border-radius:var(--r-lg);padding:var(--s-2) var(--s-3)}
+.brow img{width:40px;height:40px;border-radius:var(--r-md);object-fit:contain;background:var(--panel)}
+.bmid{min-width:0}.bmid b{display:inline;font-size:var(--fs-sm)}.bmid small{color:var(--mute);margin-left:var(--s-2)}
+.btrack{height:8px;border-radius:var(--r-pill);background:var(--line);margin-top:6px;overflow:hidden}
+.bfill{height:100%;border-radius:var(--r-pill);background:var(--accent)}
+.bfill.likes{background:var(--like)}
+.bnum{font-weight:700;font-variant-numeric:tabular-nums}
+.sheet{max-height:calc(100vh - 24px);max-height:calc(100dvh - 24px);overflow-y:auto}
+.rgrid{grid-template-columns:repeat(6,1fr)}
+@media (max-width:480px){.rgrid{grid-template-columns:repeat(3,1fr)}.tryon .tl,.trynote{width:auto}}
+.rel{min-height:0}

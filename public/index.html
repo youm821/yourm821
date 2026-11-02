@@ -8,6 +8,11 @@
 <link rel="apple-touch-icon" href="/favicon.png">
 <meta name="theme-color" content="#14141c">
 <title>Pixel Decorations</title>
+<meta name="description" content="Pixel-art avatar decorations. Pick one, try it on your picture, and share your own pixel art.">
+<meta property="og:site_name" content="Pixel Decorations"><meta property="og:type" content="website">
+<meta property="og:title" content="Pixel Decorations">
+<meta property="og:description" content="Pixel-art avatar decorations. Pick one and try it on your picture.">
+<meta property="og:image" content="/favicon.png">
 <script src="/theme.js"></script>
 <link rel="stylesheet" href="/style.css">
 </head>
@@ -16,18 +21,23 @@
 <div id="hero" class="hero"><div id="banner" class="banner" hidden></div>
 <header class="top"><img id="me" class="me" alt="" hidden><div><h1 id="title">Pixel Decorations</h1><p id="subtitle"></p><div id="stats" class="stats" hidden></div></div><a id="support" class="btn ghost sm support" target="_blank" rel="noopener noreferrer" hidden>Support server</a><div id="acct" class="acct"></div></header></div>
 <div id="note" class="note" hidden></div>
-<nav class="tabs"><button class="tab on" id="tab-gal" type="button">Gallery</button><button class="tab" id="tab-show">Showcase</button><a class="tab" href="/partners">Partners</a></nav>
+<nav class="tabs"><button class="tab on" id="tab-gal" type="button">Gallery</button><button class="tab" id="tab-fav" hidden>Favorites</button><button class="tab" id="tab-show">Showcase</button><a class="tab" href="/partners">Partners</a></nav>
 <div id="galwrap">
 <p class="hint">Pick a decoration to see it on your avatar.</p>
 <section class="tools">
   <input id="q" type="search" placeholder="Search…" autocomplete="off">
-  <select id="sort" aria-label="Sort"><option value="default">Default order</option><option value="loved">Most loved</option></select>
+  <select id="sort" aria-label="Sort"><option value="default">Default order</option><option value="loved">Most loved</option><option value="az">A to Z</option></select>
   <label class="tog"><input id="av" type="checkbox" checked> Preview on avatar</label>
+  <button id="rand" class="btn ghost sm" type="button" title="Open a random decoration">Surprise me</button>
   <div class="seg" id="gsz" role="group" aria-label="Grid size"><button data-g="s" title="Small">S</button><button data-g="m" title="Medium">M</button><button data-g="l" title="Large">L</button></div>
 </section>
 <nav id="chips" class="chips"></nav>
-<main id="grid"></main>
+<main id="grid" aria-live="polite"><noscript><p class="empty">This gallery needs JavaScript to load the decorations.</p></noscript></main>
 </div>
+<section id="favwrap" class="showwrap" hidden>
+  <div class="showhead"><div><h2>Your favorites</h2><p>Decorations you have hearted.</p></div></div>
+  <div id="favgrid"></div>
+</section>
 <section id="showwrap" class="showwrap" hidden>
   <div class="showhead"><div><h2>Community showcase</h2><p>Pixel art made by visitors. Log in with Yapin&rsquo; to share yours.</p></div><div id="shareBox"></div></div>
   <div id="shareForm" class="panel share" hidden>
@@ -42,8 +52,24 @@
   <div class="sheet">
     <button class="x" id="close" aria-label="Close">&times;</button>
     <div class="stage"><div class="av"></div><img id="mimg" alt=""></div>
+    <div class="navrow"><button id="prev" class="btn ghost sm" type="button" aria-label="Previous decoration">&larr; Prev</button><button id="next" class="btn ghost sm" type="button" aria-label="Next decoration">Next &rarr;</button></div>
     <h2 id="mtitle"></h2><p id="mset"></p>
     <button id="copy" class="btn ghost sm" type="button" aria-live="polite" hidden>Copy link</button>
+    <div class="tryon" id="tryon">
+      <span class="tl">Try it on</span>
+      <div class="sw" role="group" aria-label="Background colour">
+        <button type="button" data-bg="linear-gradient(135deg,#7cc4ff,#3a6fe0)" style="--c:#5aa0f0" aria-label="Blue"></button>
+        <button type="button" data-bg="linear-gradient(135deg,#8fe3b0,#2f9d6a)" style="--c:#4fbf88" aria-label="Green"></button>
+        <button type="button" data-bg="linear-gradient(135deg,#ff9fc0,#d6407f)" style="--c:#ea6a9f" aria-label="Pink"></button>
+        <button type="button" data-bg="linear-gradient(135deg,#ffd27b,#e08a1f)" style="--c:#f0aa4a" aria-label="Gold"></button>
+        <button type="button" data-bg="linear-gradient(135deg,#3a3a52,#14141c)" style="--c:#2a2a3c" aria-label="Night"></button>
+        <button type="button" data-bg="linear-gradient(135deg,#ffffff,#d8d6e6)" style="--c:#e8e6f2" aria-label="White"></button>
+      </div>
+      <label class="btn ghost sm tryfile">Your picture<input id="tryfile" type="file" accept="image/*" hidden></label>
+      <button id="tryreset" class="linkbtn" type="button" hidden>Reset</button>
+      <small class="trynote">Stays in your browser. Nothing is uploaded.</small>
+    </div>
+    <div class="related" id="related" hidden><h3>More from <span id="rset"></span></h3><div class="rgrid" id="rgrid"></div></div>
   </div>
 </div>
 <button id="totop" class="totop" hidden aria-label="Back to top">&uarr;</button>
