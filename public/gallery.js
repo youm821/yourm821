@@ -83,12 +83,17 @@ function makeCard(i) {
   cardKeys(f, () => openModal(i));
   return f;
 }
+function reveal(root) { // cards fade up one after another as they scroll into view
+  if (!('IntersectionObserver' in window) || matchMedia('(prefers-reduced-motion:reduce)').matches) return;
+  const io = new IntersectionObserver(es => { for (const e of es) { if (!e.isIntersecting) continue; const c = e.target; io.unobserve(c); c.style.animationDelay = (c._d || 0) + 'ms'; c.classList.remove('pre'); c.classList.add('in'); c.addEventListener('animationend', () => { c.classList.remove('in'); c.style.animationDelay = ''; }, { once: true }); } }, { rootMargin: '0px 0px -4% 0px' });
+  let n = 0; for (const c of root.querySelectorAll('.card:not(.skel)')) { c.classList.add('pre'); c._d = (n++ % 8) * 45; io.observe(c); }
+}
 function skeletons(n) { const g = el('div', 'grid'); for (let k = 0; k < n; k++) { const f = el('div', 'card skel'); f.append(el('div', 'stage ld'), el('div', 'cap')); g.append(f); } return g; }
 function renderFavs() {
   const box = $('#favgrid'); box.replaceChildren();
   const mine = state.items.filter(i => i.liked);
   if (!mine.length) { box.append(emptyBox('No favorites yet', 'Tap the heart on any decoration to keep it here.', ['Browse the gallery', () => tab('gal')])); return; }
-  const g = el('div', 'grid'); for (const i of mine) g.append(makeCard(i)); box.append(g);
+  const g = el('div', 'grid'); for (const i of mine) g.append(makeCard(i)); box.append(g); reveal(box);
 }
 function render() {
   const counts = new Map();
@@ -128,6 +133,7 @@ function render() {
     grid.append(g);
     if (foldable) { const more = el('button', 'btn ghost sm more', folded ? 'Show all ' + list.length : 'Show less'); more.onclick = () => { if (folded) state.open.add(name); else state.open.delete(name); render(); }; grid.append(more); }
   }
+  reveal(grid);
   $('#count').textContent = shown.length + ' of ' + state.items.length + ' shown';
   const st = $('#stats'); if (st) { st.replaceChildren(); for (const [n, w] of [[state.items.length, 'decorations'], [counts.size, 'sets']]) { const s = el('span'); s.append(el('b', '', n), ' ' + w); st.append(s); } st.hidden = !state.items.length; }
 }
@@ -136,7 +142,7 @@ function cardKeys(f, open) {
   f.onclick = open;
   f.onkeydown = e => { if (e.target === f && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); open(); } };
 }
-const shareHash = id => !id ? '' : (String(id).startsWith('sc-') ? '/#showcase/' : '/d/') + encodeURIComponent(id);
+const shareHash = id => !id ? '' : (String(id).startsWith('sc-') ? '/gallery#showcase/' : '/d/') + encodeURIComponent(id);
 function openFromHash() {
   let m = /^\/d\/([^/]+)$/.exec(location.pathname) || /^#d\/(.+)$/.exec(location.hash);
   if (m) { let id; try { id = decodeURIComponent(m[1]); } catch { return; } const it = state.items.find(x => x.id === id); if (it) openModal(it); return; }
@@ -169,7 +175,7 @@ function openModal(i) {
   if ($('#modal').hidden) lastCard = document.activeElement; $('#modal').hidden = false; $('#close').focus();
 }
 let lastCard = null, modalItem = null;
-const closeModal = () => { $('#modal').hidden = true; if (location.pathname.startsWith('/d/') || location.hash.startsWith('#d/')) history.replaceState(null, '', '/gallery' + location.search); else if (location.hash.startsWith('#showcase/')) history.replaceState(null, '', '#showcase'); if (lastCard && lastCard.focus) lastCard.focus(); };
+const closeModal = () => { const mo = $('#modal'); if (mo.hidden || mo.classList.contains('out')) return; const done = () => { mo.hidden = true; mo.classList.remove('out'); }; if (matchMedia('(prefers-reduced-motion:reduce)').matches) done(); else { mo.classList.add('out'); setTimeout(done, 170); } if (location.pathname.startsWith('/d/') || location.hash.startsWith('#d/')) history.replaceState(null, '', '/gallery' + location.search); else if (location.hash.startsWith('#showcase/')) history.replaceState(null, '', '#showcase'); if (lastCard && lastCard.focus) lastCard.focus(); };
 $('#close').onclick = closeModal; $('#copy').onclick = copyLink;
 $('#modal').onclick = e => { if (e.target.id === 'modal') closeModal(); };
 addEventListener('keydown', e => { if (e.key === 'Escape') closeModal(); });

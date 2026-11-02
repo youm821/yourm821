@@ -761,7 +761,7 @@ async function handle(req, res) {
   if (p === '/robots.txt') return send(res, 200, `User-agent: *\nDisallow: /admin\nSitemap: ${baseUrl(req)}/sitemap.xml\n`, { 'Content-Type': 'text/plain; charset=utf-8' });
   if (p === '/sitemap.xml') {
     const b = baseUrl(req), esc = x => String(x).replace(/&/g, '&amp;').replace(/</g, '&lt;');
-    const urls = [b + '/', b + '/gallery', b + '/about', b + '/partners', ...db.items.filter(i => !i.hidden).map(i => b + '/d/' + encodeURIComponent(i.id))];
+    const urls = [b + '/', b + '/gallery', b + '/name-banners', b + '/about', b + '/partners', ...db.items.filter(i => !i.hidden).map(i => b + '/d/' + encodeURIComponent(i.id))];
     return send(res, 200, '<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n' + urls.map(u => '<url><loc>' + esc(u) + '</loc></url>').join('\n') + '\n</urlset>\n', { 'Content-Type': 'application/xml; charset=utf-8' });
   }
   if (p.startsWith('/d/')) { // one decoration: same page, but with a title and picture for link previews
@@ -782,6 +782,7 @@ async function handle(req, res) {
   if (p === '/gallery') return serveStatic(req, res, PUBLIC_DIR, 'gallery.html', 'no-cache');
   if (p === '/admin') return serveStatic(req, res, PUBLIC_DIR, 'admin.html', 'no-cache');
   if (p === '/about') return serveStatic(req, res, PUBLIC_DIR, 'about.html', 'no-cache');
+  if (p === '/name-banners') return serveStatic(req, res, PUBLIC_DIR, 'name-banners.html', 'no-cache');
   if (p === '/partners') return serveStatic(req, res, PUBLIC_DIR, 'partners.html', 'no-cache');
   if (p === '/signin') return serveStatic(req, res, PUBLIC_DIR, 'signin.html', 'no-cache');
   if (p.startsWith('/seed/')) return serveStatic(req, res, SEED_DIR, p.slice(6), 'public, max-age=86400');

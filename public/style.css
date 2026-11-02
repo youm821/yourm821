@@ -342,3 +342,34 @@ noscript .empty{padding:var(--s-6)}
 .rgrid{grid-template-columns:repeat(6,1fr)}
 @media (max-width:480px){.rgrid{grid-template-columns:repeat(3,1fr)}.tryon .tl,.trynote{width:auto}}
 .rel{min-height:0}
+
+/* ---------- smooth motion ---------- */
+:root{--ease:cubic-bezier(.22,1,.36,1)}
+html{scroll-behavior:smooth}
+@view-transition{navigation:auto}
+::view-transition-old(root),::view-transition-new(root){animation-duration:.28s;animation-timing-function:var(--ease)}
+@supports not (view-transition-name:none){body{animation:pagein .45s var(--ease)}}
+@keyframes pagein{from{opacity:0}}
+@keyframes rise{from{opacity:0;transform:translateY(16px)}}
+.top>*{animation:rise .6s var(--ease) backwards}.top>*:nth-child(2){animation-delay:.07s}
+.tabs,.tools,.chips{animation:rise .6s var(--ease) .12s backwards}
+#galwrap:not([hidden]),.showwrap:not([hidden]){animation:pagein .4s var(--ease)}
+/* cards: soft lift, glow, and a staggered entrance as they scroll in */
+.card{transition:border-color .25s var(--ease),transform .35s var(--ease),box-shadow .35s var(--ease)}
+.card.pre{opacity:0;transform:translateY(16px)}
+.card.in{animation:cardin .55s var(--ease) backwards}
+@keyframes cardin{from{opacity:0;transform:translateY(16px) scale(.97)}}
+.stage img{transition:opacity .35s var(--ease)}
+.stage.ld img{opacity:0}
+/* chips, tabs and buttons */
+.chip,.tab,.btn,.seg button,.like{transition:background-color .2s var(--ease),border-color .2s var(--ease),color .2s var(--ease),transform .2s var(--ease),filter .2s,opacity .2s}
+.chip:hover,.btn:hover{transform:translateY(-1px)}
+.chip:active,.btn:active{transform:translateY(0) scale(.98)}
+.tab:hover{color:var(--text)}
+/* preview sheet: blurred backdrop, spring in, ease out */
+.modal{backdrop-filter:blur(4px)}
+.modal.out{animation:fadeout .17s ease-in forwards}
+.modal.out .sheet{animation:popout .17s ease-in forwards}
+@keyframes fadeout{to{opacity:0}}
+@keyframes popout{to{opacity:0;transform:translateY(8px) scale(.97)}}
+@media (prefers-reduced-motion:reduce){.card.pre{opacity:1;transform:none}}

@@ -66,3 +66,11 @@ body.land{overflow-x:hidden}
   .land .foot{padding-bottom:var(--s-7)}
 }
 @media (prefers-reduced-motion:reduce){.mosaic .tile{animation:none}}
+
+/* ---------- smooth motion ---------- */
+.lnav{transition:background-color .3s var(--ease),border-color .3s}
+.lhero .copy>*{animation:rise .8s var(--ease) backwards}
+.lhero .copy>:nth-child(2){animation-delay:.08s}.lhero .copy>:nth-child(3){animation-delay:.16s}.lhero .copy>:nth-child(4){animation-delay:.24s}
+.setcard{transition:transform .35s var(--ease),box-shadow .35s var(--ease),border-color .25s}
+.setcard:hover{transform:translateY(-5px)}
+@media (prefers-reduced-motion:reduce){.lhero .copy>*{animation:none}}

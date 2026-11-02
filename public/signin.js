@@ -26,7 +26,7 @@ async function boot() {
     try { w.append(badgeRow(me.user.badges)); } catch { /* badges.js missing */ }
     if (me.user.username) w.append(el('small', '', '@' + me.user.username));
     card.append(w); body.append(card);
-    const go = el('a', 'btn', 'Go to the gallery'); go.href = '/';
+    const go = el('a', 'btn', 'Go to the gallery'); go.href = '/gallery';
     const out = el('button', 'btn ghost', 'Log out');
     out.onclick = async () => { await fetch('/api/user/logout', { method: 'POST', credentials: 'same-origin' }); location.href = '/signin'; };
     const row = el('div', 'sigrow'); row.append(go, out); body.append(row);
