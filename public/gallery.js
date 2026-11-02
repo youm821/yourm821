@@ -3,6 +3,10 @@ const state = { items: [], trending: [], set: 'All', q: '', sort: 'default', ope
 try { state.set = localStorage.getItem('set') || 'All'; state.sort = localStorage.getItem('sort') || 'default'; } catch { /* storage blocked */ }
 { const ws = new URLSearchParams(location.search).get('set'); if (ws) state.set = ws; } // /gallery?set=Name from the home page
 const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
+// The Name Banners tab and its (empty) panel are created here if gallery.html does not have them yet,
+// so the page keeps working whichever version of gallery.html is deployed.
+if (!$('#tab-ban')) { const b = el('button', 'tab', 'Name Banners'); b.id = 'tab-ban'; b.type = 'button'; const old = document.querySelector('a.tab[href="/name-banners"]'); if (old) old.replaceWith(b); else $('#tab-show').after(b); }
+if (!$('#banwrap')) { const w = el('section', 'showwrap'); w.id = 'banwrap'; w.hidden = true; $('#favwrap').before(w); }
 
 // Each set has its own hue; unknown sets (added in /admin) get a stable one from their name.
 const SET_HUE = { 'Dude': 205, 'Slime': 135, 'Christmas': 352, 'Thanksgiving': 32, 'Hanukkah': 218, 'Bear': 24, 'Halloween': 275, 'Starter Pack': 175, 'Rings': 262, 'Orbiting & Falling': 190, 'Ears, Hats & Peeking': 328, 'Corner Sets': 52, 'Extras': 300, 'Trending': 85, 'New': 240 };
