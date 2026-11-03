@@ -1,8 +1,18 @@
 {
-  "name": "pixel-gallery",
+  "name": "gallery-bot",
   "version": "1.0.0",
   "private": true,
   "type": "module",
-  "engines": { "node": ">=18" },
-  "scripts": { "start": "node server.js" }
+  "description": "Yapin' bot for the pixel decorations gallery: /decoration, /random, /sets, /gallery and /pack",
+  "scripts": {
+    "start": "node bot.js",
+    "dev": "node --env-file=.env bot.js",
+    "test": "node test.js"
+  },
+  "dependencies": {
+    "yapin.js": "latest"
+  },
+  "engines": {
+    "node": ">=18.17"
+  }
 }
