@@ -110,7 +110,7 @@ async function restoreFromCloud(force = false) {
 const PARTNER_KINDS = { server: 'Server', creator: 'Creator', partner: 'Partner' };
 const ptImgs = p => [p.file, ...(p.works || []).map(w => w.file)].filter(Boolean);
 const BANNER_STYLE_IDS = ['aurora', 'sunset', 'forest', 'neon', 'confetti', 'ocean', 'candy', 'city'];
-function allUploads() { return [...db.items, ...db.photos, ...db.showcase, ...(db.settings && db.settings.bannerFile ? [{ file: db.settings.bannerFile }] : []), ...(db.partners || []).flatMap(p => ptImgs(p).map(file => ({ file })))]; }
+function allUploads() { return [...db.items, ...db.photos, ...db.showcase, ...(db.nameBanners || []), ...(db.profileEffects || []), ...(db.settings && db.settings.bannerFile ? [{ file: db.settings.bannerFile }] : []), ...(db.partners || []).flatMap(p => ptImgs(p).map(file => ({ file })))]; }
 function syncEverything() {
   pushDb();
   for (const i of allUploads().filter(x => !x.seed)) {
@@ -362,6 +362,45 @@ async function announce(x, req) {
     if (!r.ok) throw new Error('HTTP ' + r.status);
   } catch (e) { x.announced = false; console.error('approval webhook failed:', e.message || e); }
 }
+// ---------- name banners and profile effects ----------
+// Uploaded by the admin, shown on the Name Banners and Profile Effects tabs. Sizes follow the two templates.
+db.nameBanners = Array.isArray(db.nameBanners) ? db.nameBanners : [];
+db.profileEffects = Array.isArray(db.profileEffects) ? db.profileEffects : [];
+const DECO = {
+  banners: { key: 'nameBanners', prefix: 'nb', maxBytes: 1024 * 1024, gifMax: 8, check: (w, h) => w >= 300 && w <= 1200 && Math.abs(w / 5 - h) <= 1 ? '' : 'must be 5 times wider than tall, 300 to 1200 wide (600 x 120 is ideal)' },
+  effects: { key: 'profileEffects', prefix: 'pe', maxBytes: 3 * 1024 * 1024, gifMin: 0.5, gifMax: 12, check: (w, h) => w === 450 && h === 880 ? '' : 'must be exactly 450 x 880' },
+};
+function webpDims(b) {
+  try {
+    const t = b.slice(12, 16).toString('latin1');
+    if (t === 'VP8X') return [1 + b.readUIntLE(24, 3), 1 + b.readUIntLE(27, 3)];
+    if (t === 'VP8L') { const v = b.readUInt32LE(21); return [(v & 0x3fff) + 1, ((v >> 14) & 0x3fff) + 1]; }
+    if (t === 'VP8 ') return [b.readUInt16LE(26) & 0x3fff, b.readUInt16LE(28) & 0x3fff];
+  } catch { /* short file */ }
+  return null;
+}
+function gifSeconds(b) { // total of the frame delays, or null if the file cannot be read
+  try {
+    let p = 13, cs = 0; if (b[10] & 0x80) p += 3 * (2 << (b[10] & 7));
+    while (p < b.length && b[p] !== 0x3b) {
+      if (b[p] === 0x21) { if (b[p + 1] === 0xf9) { const d = b.readUInt16LE(p + 4); cs += d <= 1 ? 10 : d; } p += 2; while (b[p]) p += b[p] + 1; p++; }
+      else if (b[p] === 0x2c) { const f = b[p + 9]; p += 10; if (f & 0x80) p += 3 * (2 << (f & 7)); p++; while (b[p]) p += b[p] + 1; p++; }
+      else return null;
+    }
+    return cs / 100;
+  } catch { return null; }
+}
+function checkDeco(kind, body) { // returns { error } or { ext, w, h }
+  const ext = imageExt(body);
+  if (!ext || ext === 'jpg') return { error: 'not a PNG, WebP or GIF' };
+  if (body.length > kind.maxBytes) return { error: 'over ' + kind.maxBytes / 1048576 + ' MB' };
+  const d = ext === 'webp' ? webpDims(body) : dims(body, ext);
+  if (!d) return { error: 'could not read its size' };
+  const bad = kind.check(d[0], d[1]); if (bad) return { error: bad + ', this one is ' + d[0] + ' x ' + d[1] };
+  if (ext === 'gif') { const s = gifSeconds(body); if (s != null) { if (s > kind.gifMax) return { error: 'the GIF runs ' + s.toFixed(1) + 's, the most is ' + kind.gifMax + 's' }; if (kind.gifMin && s < kind.gifMin) return { error: 'the GIF runs ' + s.toFixed(1) + 's, the least is ' + kind.gifMin + 's' }; } }
+  return { ext, w: d[0], h: d[1] };
+}
+const decoView = i => ({ id: i.id, src: i.src, title: i.title, w: i.w, h: i.h });
 // ---------- server packs ----------
 // A pack is one set that a server recommends to its members, shared as /pack/<id>.
 // Web: a logged-in person makes one at /packs. Bot: POST /api/bot/packs with BOT_KEY (the bot knows who owns the server).
@@ -389,6 +428,8 @@ async function removeShowcase(id) {
 
 const viewSeen = new Map();
 async function api(req, res, p, m) {
+  let dk;
+  if (m === 'GET' && (dk = /^\/api\/(banners|effects)$/.exec(p))) return json(res, 200, { items: db[DECO[dk[1]].key].map(decoView) });
   if (p === '/api/find' && m === 'GET') { // for the bot: /decoration <name>
     const q = clean(new URL(req.url, 'http://x').searchParams.get('q'), 60).toLowerCase(), b = baseUrl(req);
     const rank = i => { const t = i.title.toLowerCase(); return t === q ? 0 : t.startsWith(q) ? 1 : t.includes(q) ? 2 : i.set.toLowerCase().includes(q) ? 3 : 9; };
@@ -568,6 +609,27 @@ async function api(req, res, p, m) {
     return json(res, 200, { added: added.map(adminView), rejected });
   }
 
+  if ((dk = /^\/api\/admin\/(banners|effects)$/.exec(p)) && m === 'POST') {
+    const kind = DECO[dk[1]], bm = /boundary=(?:"([^"]+)"|([^;]+))/i.exec(req.headers['content-type'] || '');
+    if (!bm) return json(res, 400, { error: 'Expected multipart upload' });
+    const parts = parseMultipart(await readBody(req, MAX_BODY), bm[1] || bm[2]), files = parts.filter(x => x.name === 'files' && x.filename);
+    if (!files.length) return json(res, 400, { error: 'No files received' });
+    const tp = parts.find(x => x.name === 'title' && !x.filename), title = tp ? clean(tp.body.toString('utf8'), 60) : '', added = [], rejected = [];
+    for (const f of files.slice(0, 10)) {
+      const r = checkDeco(kind, f.body); if (r.error) { rejected.push(f.filename + ' (' + r.error + ')'); continue; }
+      const id = crypto.randomBytes(6).toString('hex'), file = `${kind.prefix}_${id}.${r.ext}`;
+      await fsp.writeFile(path.join(UPLOAD_DIR, file), f.body); ghTask(() => ghPut('uploads/' + file, f.body));
+      added.push({ id: kind.prefix + '-' + id, src: '/uploads/' + file, file, title: files.length === 1 && title ? title : titleFrom(f.filename), w: r.w, h: r.h, created: Date.now() });
+    }
+    db[kind.key].unshift(...added); await saveDb();
+    return json(res, 200, { added: added.map(decoView), rejected });
+  }
+  if ((dk = /^\/api\/admin\/(banners|effects)\/([\w-]+)$/.exec(p)) && m === 'DELETE') {
+    const kind = DECO[dk[1]], x = db[kind.key].find(i => i.id === dk[2]); if (!x) return json(res, 404, { error: 'Not found' });
+    db[kind.key] = db[kind.key].filter(i => i.id !== x.id); await saveDb();
+    try { await fsp.unlink(path.join(UPLOAD_DIR, path.basename(x.file))); } catch { /* already gone */ }
+    ghTask(() => ghDel('uploads/' + path.basename(x.file))); return json(res, 200, { ok: true });
+  }
   if (p === '/api/admin/photos' && m === 'GET') return json(res, 200, { photos: db.photos.map(photoView) });
   if (p === '/api/photos' && m === 'POST') {
     const bm = /boundary=(?:"([^"]+)"|([^;]+))/i.exec(req.headers['content-type'] || '');

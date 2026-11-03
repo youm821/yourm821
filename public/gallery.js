@@ -6,6 +6,8 @@ const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls)
 // The Name Banners tab and its (empty) panel are created here if gallery.html does not have them yet,
 // so the page keeps working whichever version of gallery.html is deployed.
 if (!$('#tab-ban')) { const b = el('button', 'tab', 'Name Banners'); b.id = 'tab-ban'; b.type = 'button'; const old = document.querySelector('a.tab[href="/name-banners"]'); if (old) old.replaceWith(b); else $('#tab-show').after(b); }
+if (!$('#tab-fx')) { const b = el('button', 'tab', 'Profile Effects'); b.id = 'tab-fx'; b.type = 'button'; $('#tab-ban').after(b); }
+if (!$('#fxwrap')) { const w = el('section', 'showwrap'); w.id = 'fxwrap'; w.hidden = true; $('#favwrap').before(w); }
 if (!$('#banwrap')) { const w = el('section', 'showwrap'); w.id = 'banwrap'; w.hidden = true; $('#favwrap').before(w); }
 
 // Each set has its own hue; unknown sets (added in /admin) get a stable one from their name.
@@ -229,16 +231,31 @@ const boot = () => load().then(loadAccount).then(() => { if (state.items.length)
 boot();
 
 // ---------- showcase ----------
+// Name Banners and Profile Effects: whatever the admin uploaded, newest first. Nothing is shown until something is uploaded.
+const DECO_TABS = { ban: { url: '/api/banners', box: '#banwrap', cols: 'minmax(260px, 1fr)' }, fx: { url: '/api/effects', box: '#fxwrap', cols: 'repeat(auto-fill, minmax(150px, 190px))' } };
+async function loadDeco(which) {
+  const c = DECO_TABS[which], box = $(c.box); let d;
+  try { d = await (await fetch(c.url, { cache: 'no-cache' })).json(); } catch { return; }
+  box.replaceChildren(); if (!d.items.length) return;
+  const g = el('div'); g.style.cssText = 'display:grid;gap:14px;padding:6px 0 30px;grid-template-columns:' + (which === 'ban' ? 'repeat(auto-fill, ' + c.cols + ')' : c.cols);
+  for (const i of d.items) {
+    const f = el('figure', 'card'), im = el('img'); f.style.margin = '0'; im.src = i.src; im.alt = i.title; im.loading = 'lazy';
+    im.style.cssText = 'display:block;width:100%;height:auto;border-radius:8px'; f.append(im, el('figcaption', '', i.title)); g.append(f);
+  }
+  box.append(g);
+}
 function tab(which) {
-  const show = which === 'show', fav = which === 'fav', ban = which === 'ban';
-  $('#galwrap').hidden = show || fav || ban; $('#showwrap').hidden = !show; $('#favwrap').hidden = !fav; $('#banwrap').hidden = !ban;
-  $('#tab-gal').classList.toggle('on', which === 'gal' || !which); $('#tab-ban').classList.toggle('on', ban); $('#tab-fav').classList.toggle('on', fav); $('#tab-show').classList.toggle('on', show);
+  const show = which === 'show', fav = which === 'fav', ban = which === 'ban', fx = which === 'fx';
+  $('#galwrap').hidden = show || fav || ban || fx; $('#showwrap').hidden = !show; $('#favwrap').hidden = !fav; $('#banwrap').hidden = !ban; $('#fxwrap').hidden = !fx;
+  $('#tab-gal').classList.toggle('on', which === 'gal' || !which); $('#tab-ban').classList.toggle('on', ban); $('#tab-fx').classList.toggle('on', fx); $('#tab-fav').classList.toggle('on', fav); $('#tab-show').classList.toggle('on', show);
   const base = location.pathname.startsWith('/d/') ? '/gallery' : location.pathname;
-  history.replaceState(null, '', ban ? base + location.search + '#name-banners' : show ? base + location.search + '#showcase' : fav ? base + location.search + '#favorites' : base + location.search);
+  history.replaceState(null, '', fx ? base + location.search + '#profile-effects' : ban ? base + location.search + '#name-banners' : show ? base + location.search + '#showcase' : fav ? base + location.search + '#favorites' : base + location.search);
   if (fav) renderFavs();
+  if (ban) loadDeco('ban');
+  if (fx) loadDeco('fx');
   if (show) return loadShowcase();
 }
-$('#tab-gal').onclick = () => tab('gal'); $('#tab-show').onclick = () => tab('show'); $('#tab-fav').onclick = () => tab('fav'); $('#tab-ban').onclick = () => tab('ban');
+$('#tab-gal').onclick = () => tab('gal'); $('#tab-show').onclick = () => tab('show'); $('#tab-fav').onclick = () => tab('fav'); $('#tab-ban').onclick = () => tab('ban'); $('#tab-fx').onclick = () => tab('fx');
 function byLine(by) {
   const d = el('div', 'by');
   if (by.avatar_url) { const im = el('img'); im.src = by.avatar_url; im.alt = ''; im.referrerPolicy = 'no-referrer'; d.append(im); } else d.append(el('div', 'ini', (by.name || '?').slice(0, 1).toUpperCase()));
@@ -293,6 +310,7 @@ $('#sh-go').onclick = async () => {
     $('#sh-file').value = ''; $('#sh-title').value = ''; loadShowcase();
   } catch (e) { say(e.message, 'err'); }
 };
-if (location.hash === '#name-banners') tab('ban');
+if (location.hash === '#profile-effects') tab('fx');
+else if (location.hash === '#name-banners') tab('ban');
 else if (location.hash === '#showcase') tab('show');
 else if (location.hash === '#favorites') { const w = setInterval(() => { if (ME) { clearInterval(w); if (ME.user) tab('fav'); } }, 200); setTimeout(() => clearInterval(w), 5000); }

@@ -71,8 +71,8 @@ async function loadStrip() {
     else { s.className = 'strip ok'; s.textContent = 'Cloud backup is on' + (d.repo ? ' (' + d.repo + ')' : '') + (d.last ? ' \u00b7 last saved ' + new Date(d.last).toLocaleString() : ''); }
   } catch { s.className = 'strip'; s.textContent = 'Could not check the cloud backup.'; }
 }
-const TAB_NAMES = ['Site & partners', 'Gallery', 'Accounts', 'Backup'];
-function tabOf(title) { const t = title.toLowerCase(); if (/^site|^partners/.test(t)) return 'Site & partners'; if (/account/.test(t)) return 'Accounts'; if (/awake|cloud|download/.test(t)) return 'Backup'; return 'Gallery'; }
+const TAB_NAMES = ['Site & partners', 'Gallery', 'Banners & effects', 'Accounts', 'Backup'];
+function tabOf(title) { const t = title.toLowerCase(); if (/^site|^partners/.test(t)) return 'Site & partners'; if (/^name banner|^profile effect/.test(t)) return 'Banners & effects'; if (/account/.test(t)) return 'Accounts'; if (/awake|cloud|download/.test(t)) return 'Backup'; return 'Gallery'; }
 function setupTabs() {
   const nav = $('#atabs'); const panels = [...document.querySelectorAll('#app > section.panel')];
   let cur = 'Site & partners'; try { cur = localStorage.getItem('atab') || cur; } catch { /* ignore */ }
@@ -91,7 +91,7 @@ async function boot() {
   $('#login').hidden = true; $('#app').hidden = false;
   await refresh();
   setupTabs(); loadStrip(); setInterval(loadStrip, 20000);
-  loadSync(); setInterval(loadSync, 15000); loadPhotos(); loadPartners(); loadUsers().catch(e => { console.error(e); $('#users').replaceChildren(el('div', 'empty', 'Could not load accounts: ' + e.message)); }); loadShowcase(); loadPopular().catch(e => console.error(e)); loadUptime(); setInterval(loadUptime, 20000);
+  loadSync(); setInterval(loadSync, 15000); loadPhotos(); DECO.forEach(c => c.load()); loadPartners(); loadUsers().catch(e => { console.error(e); $('#users').replaceChildren(el('div', 'empty', 'Could not load accounts: ' + e.message)); }); loadShowcase(); loadPopular().catch(e => console.error(e)); loadUptime(); setInterval(loadUptime, 20000);
 }
 async function loadSync() {
   try {
@@ -384,4 +384,30 @@ async function loadUptime() {
       ? 'The site visits itself every ' + d.keep.everyMin + ' minutes so Render does not put it to sleep.' + (d.keep.error ? ' Problem: ' + d.keep.error : '')
       : 'Self-check is off (no site address known). Set PUBLIC_URL to your site address to turn it on.';
   } catch { /* logged out */ }
+}
+
+// ---------- name banners and profile effects ----------
+const DECO = [{ k: 'banners', id: 'nb', noun: 'name banner', h: 48 }, { k: 'effects', id: 'fx', noun: 'profile effect', h: 120 }];
+for (const c of DECO) {
+  c.load = async () => {
+    const d = await (await fetch('/api/' + c.k, { cache: 'no-cache' })).json(), box = $('#' + c.id + '-list'); box.replaceChildren();
+    if (!d.items.length) box.append(el('div', 'empty', 'Nothing uploaded yet.'));
+    for (const i of d.items) {
+      const row = el('div', 'row'), im = el('img'), del = el('button', 'btn danger sm', 'Delete');
+      row.style.cssText = 'align-items:center;gap:12px;margin-top:10px'; im.src = i.src; im.alt = ''; im.style.cssText = 'height:' + c.h + 'px;max-width:260px;border-radius:6px'; del.type = 'button';
+      del.onclick = async () => { if (!confirm('Delete this ' + c.noun + '?')) return; await api('DELETE', '/api/admin/' + c.k + '/' + i.id); c.load(); };
+      row.append(im, el('span', '', i.title + ' (' + i.w + ' x ' + i.h + ')'), del); box.append(row);
+    }
+  };
+  $('#' + c.id + '-go').onclick = async () => {
+    const files = [...$('#' + c.id + '-files').files]; if (!files.length) return say('#' + c.id + '-msg', 'Pick a file first.', 'err');
+    const fd = new FormData(); fd.append('title', $('#' + c.id + '-title').value); for (const f of files) fd.append('files', f, f.name);
+    say('#' + c.id + '-msg', 'Uploading\u2026');
+    try {
+      const r = await fetch('/api/admin/' + c.k, { method: 'POST', body: fd, credentials: 'same-origin' }), d = await r.json().catch(() => ({}));
+      if (r.status === 401) return showLogin(); if (!r.ok) throw new Error(d.error || 'Upload failed');
+      say('#' + c.id + '-msg', d.added.length + ' added.' + (d.rejected.length ? ' Not added: ' + d.rejected.join('; ') : ''), d.rejected.length ? 'err' : 'ok');
+      if (d.added.length) { $('#' + c.id + '-files').value = ''; $('#' + c.id + '-title').value = ''; c.load(); }
+    } catch (err) { say('#' + c.id + '-msg', err.message, 'err'); }
+  };
 }
