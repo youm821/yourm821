@@ -390,13 +390,16 @@ async function loadUptime() {
 const DECO = [{ k: 'banners', id: 'nb', noun: 'name banner', h: 48 }, { k: 'effects', id: 'fx', noun: 'profile effect', h: 120 }];
 for (const c of DECO) {
   c.load = async () => {
-    const d = await (await fetch('/api/' + c.k, { cache: 'no-cache' })).json(), box = $('#' + c.id + '-list'); box.replaceChildren();
+    const d = await (await fetch('/api/admin/' + c.k, { credentials: 'same-origin', cache: 'no-cache' })).json(), box = $('#' + c.id + '-list'); box.replaceChildren();
     if (!d.items.length) box.append(el('div', 'empty', 'Nothing uploaded yet.'));
     for (const i of d.items) {
       const row = el('div', 'row'), im = el('img'), del = el('button', 'btn danger sm', 'Delete');
       row.style.cssText = 'align-items:center;gap:12px;margin-top:10px'; im.src = i.src; im.alt = ''; im.style.cssText = 'height:' + c.h + 'px;max-width:260px;border-radius:6px'; del.type = 'button';
       del.onclick = async () => { if (!confirm('Delete this ' + c.noun + '?')) return; await api('DELETE', '/api/admin/' + c.k + '/' + i.id); c.load(); };
-      row.append(im, el('span', '', i.title + ' (' + i.w + ' x ' + i.h + ')'), del); box.append(row);
+      const wait = i.status === 'pending', label = i.title + ' (' + i.w + ' x ' + i.h + ')' + (i.by ? ' by ' + i.by.name : '') + (wait ? ' \u00b7 waiting for review' : '');
+      if (wait) { const ok = el('button', 'btn sm', 'Approve'); ok.type = 'button'; ok.onclick = async () => { await api('PATCH', '/api/admin/' + c.k + '/' + i.id, { status: 'approved' }); c.load(); }; row.append(im, el('span', '', label), ok, del); }
+      else row.append(im, el('span', '', label), del);
+      box.append(row);
     }
   };
   $('#' + c.id + '-go').onclick = async () => {

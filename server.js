@@ -355,10 +355,12 @@ const HOOK = process.env.APPROVAL_WEBHOOK_URL || '';
 async function announce(x, req) {
   if (!/^https:\/\//.test(HOOK) || x.announced) return;
   x.announced = true;
-  const b = baseUrl(req), by = userBy(x.ownerId)?.name || x.ownerName || 'someone', link = b + '/gallery#showcase/' + encodeURIComponent(x.id);
+  const b = baseUrl(req), by = userBy(x.ownerId)?.name || x.ownerName || 'someone';
+  const where = x.id.startsWith('nb-') ? ['Name Banners', '#name-banners'] : x.id.startsWith('pe-') ? ['Profile Effects', '#profile-effects'] : ['the showcase', '#showcase/' + encodeURIComponent(x.id)];
+  const link = b + '/gallery' + where[1];
   try {
     const r = await fetch(HOOK, { method: 'POST', headers: { 'Content-Type': 'application/json' }, signal: AbortSignal.timeout(5000),
-      body: JSON.stringify({ content: 'New in the showcase: **' + x.title + '** by ' + by + '\n' + link, embeds: [{ title: x.title, url: link, description: 'by ' + by, image: { url: b + x.src } }] }) });
+      body: JSON.stringify({ content: 'New in ' + where[0] + ': **' + x.title + '** by ' + by + '\n' + link, embeds: [{ title: x.title, url: link, description: 'by ' + by, image: { url: b + x.src } }] }) });
     if (!r.ok) throw new Error('HTTP ' + r.status);
   } catch (e) { x.announced = false; console.error('approval webhook failed:', e.message || e); }
 }
@@ -392,15 +394,16 @@ function gifSeconds(b) { // total of the frame delays, or null if the file canno
 }
 function checkDeco(kind, body) { // returns { error } or { ext, w, h }
   const ext = imageExt(body);
-  if (!ext || ext === 'jpg') return { error: 'not a PNG, WebP or GIF' };
-  if (body.length > kind.maxBytes) return { error: 'over ' + kind.maxBytes / 1048576 + ' MB' };
+  if (!ext || ext === 'jpg') return { error: 'is not a PNG, WebP or GIF' };
+  if (body.length > kind.maxBytes) return { error: 'is over ' + kind.maxBytes / 1048576 + ' MB' };
   const d = ext === 'webp' ? webpDims(body) : dims(body, ext);
-  if (!d) return { error: 'could not read its size' };
+  if (!d) return { error: 'could not be read' };
   const bad = kind.check(d[0], d[1]); if (bad) return { error: bad + ', this one is ' + d[0] + ' x ' + d[1] };
-  if (ext === 'gif') { const s = gifSeconds(body); if (s != null) { if (s > kind.gifMax) return { error: 'the GIF runs ' + s.toFixed(1) + 's, the most is ' + kind.gifMax + 's' }; if (kind.gifMin && s < kind.gifMin) return { error: 'the GIF runs ' + s.toFixed(1) + 's, the least is ' + kind.gifMin + 's' }; } }
+  if (ext === 'gif') { const s = gifSeconds(body); if (s != null) { if (s > kind.gifMax) return { error: 'is a GIF that runs ' + s.toFixed(1) + 's, the most is ' + kind.gifMax + 's' }; if (kind.gifMin && s < kind.gifMin) return { error: 'is a GIF that runs ' + s.toFixed(1) + 's, the least is ' + kind.gifMin + 's' }; } }
   return { ext, w: d[0], h: d[1] };
 }
-const decoView = i => ({ id: i.id, src: i.src, title: i.title, w: i.w, h: i.h });
+const decoView = i => ({ id: i.id, src: i.src, title: i.title, w: i.w, h: i.h, status: i.status || 'approved', by: i.ownerId ? (userBy(i.ownerId) || { name: i.ownerName || 'Someone', username: null, avatar_url: null, badges: [] }) : null });
+const decoLive = i => (i.status || 'approved') === 'approved' && !(i.ownerId && ownerBanned(i)); // admin uploads have no status and count as approved
 // ---------- server packs ----------
 // A pack is one set that a server recommends to its members, shared as /pack/<id>.
 // Web: a logged-in person makes one at /packs. Bot: POST /api/bot/packs with BOT_KEY (the bot knows who owns the server).
@@ -429,7 +432,7 @@ async function removeShowcase(id) {
 const viewSeen = new Map();
 async function api(req, res, p, m) {
   let dk;
-  if (m === 'GET' && (dk = /^\/api\/(banners|effects)$/.exec(p))) return json(res, 200, { items: db[DECO[dk[1]].key].map(decoView) });
+  if (m === 'GET' && (dk = /^\/api\/(banners|effects)$/.exec(p))) { const me = userFromReq(req), all = db[DECO[dk[1]].key]; return json(res, 200, { items: all.filter(decoLive).map(decoView), mine: me ? all.filter(i => i.ownerId === me.id).map(decoView) : [], user: !!me, login: loginOn, auto: !!db.settings.showcaseAuto }); }
   if (p === '/api/find' && m === 'GET') { // for the bot: /decoration <name>
     const q = clean(new URL(req.url, 'http://x').searchParams.get('q'), 60).toLowerCase(), b = baseUrl(req);
     const rank = i => { const t = i.title.toLowerCase(); return t === q ? 0 : t.startsWith(q) ? 1 : t.includes(q) ? 2 : i.set.toLowerCase().includes(q) ? 3 : 9; };
@@ -503,6 +506,33 @@ async function api(req, res, p, m) {
   if (p === '/api/showcase' && m === 'GET') {
     const me = userFromReq(req);
     return json(res, 200, { enabled: loginOn, auto: !!db.settings.showcaseAuto, items: db.showcase.filter(x => (x.status === 'approved' && !ownerBanned(x)) || (me && x.ownerId === me.id)).map(x => scView(x, me)) });
+  }
+  if ((dk = /^\/api\/submit\/(banners|effects)$/.exec(p)) && m === 'POST') { // people share their own, same review queue as the showcase
+    const kind = DECO[dk[1]], me = userFromReq(req);
+    if (!me) return json(res, 401, { error: 'Log in with Yapin\u2019 first.' });
+    if (!sameOrigin(req)) return json(res, 403, { error: 'Bad origin' });
+    const mine = db[kind.key].filter(x => x.ownerId === me.id);
+    if (mine.length >= 6) return json(res, 400, { error: 'You can have up to 6 here at once. Delete one first.' });
+    if (mine.filter(x => Date.now() - x.created < 3600e3).length >= 3) return json(res, 429, { error: 'Slow down. Try again in a little while.' });
+    const bm = /boundary=(?:"([^"]+)"|([^;]+))/i.exec(req.headers['content-type'] || '');
+    if (!bm) return json(res, 400, { error: 'Expected an upload' });
+    const parts = parseMultipart(await readBody(req, kind.maxBytes + 512 * 1024), bm[1] || bm[2]), f = parts.find(x => x.name === 'file' && x.filename);
+    if (!f) return json(res, 400, { error: 'Choose a file first.' });
+    const r = checkDeco(kind, f.body); if (r.error) return json(res, 400, { error: 'That file ' + r.error + '.' });
+    const id = crypto.randomBytes(6).toString('hex'), file = `${kind.prefix}_${id}.${r.ext}`;
+    await fsp.writeFile(path.join(UPLOAD_DIR, file), f.body); ghTask(() => ghPut('uploads/' + file, f.body));
+    const title = clean(parts.find(x => x.name === 'title' && x.filename === undefined)?.body.toString('utf8'), 60) || titleFrom(f.filename);
+    const entry = { id: kind.prefix + '-' + id, src: '/uploads/' + file, file, title, w: r.w, h: r.h, ownerId: me.id, ownerName: me.display_name || me.username || '', status: db.settings.showcaseAuto ? 'approved' : 'pending', created: Date.now() };
+    db[kind.key].unshift(entry); if (entry.status === 'approved') { autoCreator(me.id); await announce(entry, req); } await saveDb();
+    return json(res, 200, decoView(entry));
+  }
+  if ((dk = /^\/api\/submit\/(banners|effects)\/([\w-]+)$/.exec(p)) && m === 'DELETE') {
+    const kind = DECO[dk[1]], me = userFromReq(req), x = db[kind.key].find(i => i.id === dk[2]);
+    if (!x || !me || x.ownerId !== me.id) return json(res, 404, { error: 'Not found' });
+    if (!sameOrigin(req)) return json(res, 403, { error: 'Bad origin' });
+    db[kind.key] = db[kind.key].filter(i => i.id !== x.id); await saveDb();
+    try { await fsp.unlink(path.join(UPLOAD_DIR, path.basename(x.file))); } catch { /* gone */ }
+    ghTask(() => ghDel('uploads/' + path.basename(x.file))); return json(res, 200, { ok: true });
   }
   if (p === '/api/showcase' && m === 'POST') {
     const me = userFromReq(req);
@@ -609,6 +639,13 @@ async function api(req, res, p, m) {
     return json(res, 200, { added: added.map(adminView), rejected });
   }
 
+  if ((dk = /^\/api\/admin\/(banners|effects)$/.exec(p)) && m === 'GET') return json(res, 200, { items: db[DECO[dk[1]].key].map(decoView) });
+  if ((dk = /^\/api\/admin\/(banners|effects)\/([\w-]+)$/.exec(p)) && m === 'PATCH') {
+    const kind = DECO[dk[1]], x = db[kind.key].find(i => i.id === dk[2]); if (!x) return json(res, 404, { error: 'Not found' });
+    const b = await readJson(req); if (b.status === 'approved' || b.status === 'pending') x.status = b.status;
+    if (x.status === 'approved' && x.ownerId) { autoCreator(x.ownerId); await announce(x, req); }
+    await saveDb(); return json(res, 200, decoView(x));
+  }
   if ((dk = /^\/api\/admin\/(banners|effects)$/.exec(p)) && m === 'POST') {
     const kind = DECO[dk[1]], bm = /boundary=(?:"([^"]+)"|([^;]+))/i.exec(req.headers['content-type'] || '');
     if (!bm) return json(res, 400, { error: 'Expected multipart upload' });
@@ -616,7 +653,7 @@ async function api(req, res, p, m) {
     if (!files.length) return json(res, 400, { error: 'No files received' });
     const tp = parts.find(x => x.name === 'title' && !x.filename), title = tp ? clean(tp.body.toString('utf8'), 60) : '', added = [], rejected = [];
     for (const f of files.slice(0, 10)) {
-      const r = checkDeco(kind, f.body); if (r.error) { rejected.push(f.filename + ' (' + r.error + ')'); continue; }
+      const r = checkDeco(kind, f.body); if (r.error) { rejected.push(f.filename + ' ' + r.error); continue; }
       const id = crypto.randomBytes(6).toString('hex'), file = `${kind.prefix}_${id}.${r.ext}`;
       await fsp.writeFile(path.join(UPLOAD_DIR, file), f.body); ghTask(() => ghPut('uploads/' + file, f.body));
       added.push({ id: kind.prefix + '-' + id, src: '/uploads/' + file, file, title: files.length === 1 && title ? title : titleFrom(f.filename), w: r.w, h: r.h, created: Date.now() });

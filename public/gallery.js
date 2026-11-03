@@ -231,16 +231,52 @@ const boot = () => load().then(loadAccount).then(() => { if (state.items.length)
 boot();
 
 // ---------- showcase ----------
-// Name Banners and Profile Effects: whatever the admin uploaded, newest first. Nothing is shown until something is uploaded.
-const DECO_TABS = { ban: { url: '/api/banners', box: '#banwrap', cols: 'minmax(260px, 1fr)' }, fx: { url: '/api/effects', box: '#fxwrap', cols: 'repeat(auto-fill, minmax(150px, 190px))' } };
-async function loadDeco(which) {
+// Name Banners and Profile Effects: what the admin uploaded plus approved submissions, newest first.
+// Signed-in people can share their own here; submissions go through the same review as the showcase.
+const DECO_TABS = {
+  ban: { url: '/api/banners', send: '/api/submit/banners', box: '#banwrap', cols: 'repeat(auto-fill, minmax(260px, 1fr))', thumb: 40,
+    rules: 'Name banner: 5 times wider than tall, 300 to 1200 wide (600 x 120 is ideal). PNG, WebP or GIF, under 1 MB, GIFs up to 8 seconds. Keep the left side clear for the picture and name.' },
+  fx: { url: '/api/effects', send: '/api/submit/effects', box: '#fxwrap', cols: 'repeat(auto-fill, minmax(150px, 190px))', thumb: 80,
+    rules: 'Profile effect: exactly 450 x 880. PNG (APNG), WebP or GIF, under 3 MB, GIFs 0.5 to 12 seconds, looping seamlessly. Keep the middle clear for the bio and buttons.' },
+};
+async function loadDeco(which, flash) {
   const c = DECO_TABS[which], box = $(c.box); let d;
-  try { d = await (await fetch(c.url, { cache: 'no-cache' })).json(); } catch { return; }
-  box.replaceChildren(); if (!d.items.length) return;
-  const g = el('div'); g.style.cssText = 'display:grid;gap:14px;padding:6px 0 30px;grid-template-columns:' + (which === 'ban' ? 'repeat(auto-fill, ' + c.cols + ')' : c.cols);
+  try { d = await (await fetch(c.url, { credentials: 'same-origin', cache: 'no-cache' })).json(); } catch { return; }
+  box.replaceChildren();
+  const bar = el('div'); bar.style.cssText = 'display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin:6px 0 16px';
+  if (d.user) {
+    const open = el('button', 'btn sm', 'Share yours'), form = el('div'), title = el('input'), file = el('input'), go = el('button', 'btn sm', 'Submit'), note = el('p', '', c.rules), msg = el('div', 'msg', flash || '');
+    open.type = 'button'; go.type = 'button'; title.type = 'text'; title.placeholder = 'Title (optional)'; title.maxLength = 60; file.type = 'file'; file.accept = 'image/png,image/webp,image/gif';
+    form.style.cssText = 'flex-basis:100%;display:none;gap:10px;flex-wrap:wrap;align-items:center'; note.style.cssText = 'flex-basis:100%;margin:0;color:var(--mute)'; msg.style.flexBasis = '100%'; if (flash) msg.className = 'msg ok';
+    form.append(note, title, file, go, msg);
+    open.onclick = () => { form.style.display = form.style.display === 'none' ? 'flex' : 'none'; };
+    go.onclick = async () => {
+      if (!file.files[0]) { msg.className = 'msg err'; msg.textContent = 'Pick a file first.'; return; }
+      const fd = new FormData(); fd.append('title', title.value); fd.append('file', file.files[0], file.files[0].name); msg.className = 'msg'; msg.textContent = 'Uploading\u2026';
+      try {
+        const r = await fetch(c.send, { method: 'POST', body: fd, credentials: 'same-origin' }), j = await r.json().catch(() => ({}));
+        if (!r.ok) throw new Error(j.error || 'Upload failed.');
+        loadDeco(which, j.status === 'approved' ? 'Added.' : 'Sent. It will show up here once it has been approved.');
+      } catch (err) { msg.className = 'msg err'; msg.textContent = err.message; }
+    };
+    bar.append(open, form); if (flash) bar.append(msg.cloneNode(true)); // visible even while the form is closed
+    if (flash) form.removeChild(msg);
+  } else if (d.login) { const a = el('a', 'btn sm', 'Log in with Yapin\u2019 to share yours'); a.href = '/signin'; bar.append(a); }
+  if (bar.childNodes.length) box.append(bar);
+  if (d.mine.length) {
+    const h = el('h3', '', 'Your submissions'); h.style.margin = '4px 0 8px'; box.append(h);
+    for (const i of d.mine) {
+      const row = el('div'), im = el('img'), del = el('button', 'btn ghost sm', 'Delete');
+      row.style.cssText = 'display:flex;align-items:center;gap:12px;margin:0 0 8px'; im.src = i.src; im.alt = ''; im.style.cssText = 'height:' + c.thumb + 'px;max-width:200px;border-radius:6px'; del.type = 'button';
+      del.onclick = async () => { if (!confirm('Delete this?')) return; await fetch(c.send + '/' + i.id, { method: 'DELETE', credentials: 'same-origin' }); loadDeco(which); };
+      row.append(im, el('span', '', i.title + ' \u00b7 ' + (i.status === 'approved' ? 'live' : 'waiting for review')), del); box.append(row);
+    }
+  }
+  if (!d.items.length) return;
+  const g = el('div'); g.style.cssText = 'display:grid;gap:14px;padding:6px 0 30px;margin-top:10px;grid-template-columns:' + c.cols;
   for (const i of d.items) {
     const f = el('figure', 'card'), im = el('img'); f.style.margin = '0'; im.src = i.src; im.alt = i.title; im.loading = 'lazy';
-    im.style.cssText = 'display:block;width:100%;height:auto;border-radius:8px'; f.append(im, el('figcaption', '', i.title)); g.append(f);
+    im.style.cssText = 'display:block;width:100%;height:auto;border-radius:8px'; f.append(im, el('figcaption', '', i.title)); if (i.by) f.append(byLine(i.by)); g.append(f);
   }
   box.append(g);
 }
