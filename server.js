@@ -995,3 +995,4 @@ server.listen(PORT, '0.0.0.0', () => console.log(`Gallery on :${PORT}  data=${DA
 process.on('uncaughtException', e => console.error('uncaught', e));
 process.on('unhandledRejection', e => console.error('unhandled', e));
 for (const sig of ['SIGTERM', 'SIGINT']) process.on(sig, () => { server.close(() => process.exit(0)); setTimeout(() => process.exit(0), 8000).unref(); });
+import('./bot/bot.mjs').catch(err => console.error('Bot failed to start:', err));
