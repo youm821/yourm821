@@ -55,7 +55,7 @@ client.commands.register({
   async run(ctx) {
     const list = await sets();
     const total = list.reduce((n, [, c]) => n + c, 0);
-    return ctx.reply({ embeds: [new EmbedBuilder().setTitle('Sets').setURL(GALLERY + '/gallery').setColor(ORANGE).setDescription(list.map(([n, c]) => '**' + n + '** (' + c + ')').join('\n') || 'Nothing yet.').setFooter({ text: total + ' decorations. Use /decoration <name> to look one up' })] });
+    return ctx.reply({ embeds: [new EmbedBuilder().setTitle('Sets').setURL(GALLERY + '/gallery').setColor(ORANGE).setDescription(list.map(([n, c]) => '**' + n + '** (' + c + ')').join('\n') || 'Nothing yet.').setFooter({ text: total + ' decorations. Use /decoration <n> to look one up' })] });
   },
 });
 
@@ -86,4 +86,11 @@ client.commands.register({
 });
 
 client.on('ready', () => console.log('Gallery bot is online. Gallery: ' + GALLERY));
-client.login(process.env.YAPIN_TOKEN || process.env.YAPPER_BOT_TOKEN);
+
+// Keep the bot from crashing on a stray error.
+process.on('unhandledRejection', err => console.error('Unhandled rejection:', err?.message || err));
+process.on('uncaughtException', err => console.error('Uncaught exception:', err?.message || err));
+
+const TOKEN = process.env.YAPIN_TOKEN || process.env.YAPPER_BOT_TOKEN;
+if (!TOKEN) { console.error('No bot token. Set YAPIN_TOKEN (Yapin\u2019 > Settings > Developer > your bot > token).'); process.exit(1); }
+client.login(TOKEN);
