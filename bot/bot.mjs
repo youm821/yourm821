@@ -8,6 +8,7 @@ console.log('   Token set: ' + ((process.env.YAPIN_TOKEN || process.env.YAPPER_B
 // Works as /random and as .random
 const client = new Client({ prefixes: ['/', '.'], commands: { help: true } });
 const ORANGE = '#fc6a39';
+const STARTED_AT = Date.now();
 
 // Every answer is an embed card with the picture inside it.
 // Yapin' only accepts embed pictures from some hosts. If it refuses the gallery's address, the bot falls back (once, then remembers)
@@ -19,14 +20,21 @@ const embedFor = (d, withImage, extra) => {
   if (withImage) e.setImage(d.image);
   return e;
 };
-async function show(ctx, d) {
+async function show(ctx, d, heading) {
   const extra = d.others?.length ? d.others.join(', ') : '';
   if (embedPictures) {
-    try { return await ctx.reply({ embeds: [embedFor(d, true, extra)] }); }
+    try { return await ctx.reply({ content: heading, embeds: [embedFor(d, true, extra)] }); }
     catch (err) { embedPictures = false; console.warn('Yapin\u2019 refused the picture inside the card, using a plain image link instead:', err?.message || err); }
   }
-  return ctx.reply({ content: d.image, embeds: [embedFor(d, false, extra)] });
+  return ctx.reply({ content: (heading ? heading + '\n' : '') + d.image, embeds: [embedFor(d, false, extra)] });
 }
+
+const formatDuration = ms => {
+  const s = Math.floor(ms / 1000), d = Math.floor(s / 86400), h = Math.floor(s % 86400 / 3600), m = Math.floor(s % 3600 / 60);
+  return [d && d + 'd', (d || h) && h + 'h', m + 'm'].filter(Boolean).join(' ');
+};
+
+// ---------------------------------------------------------------- existing commands
 
 client.commands.register({
   name: 'decoration',
@@ -88,6 +96,136 @@ client.commands.register({
     return ctx.reply('Done. Share this link with your members: ' + pack.url);
   },
 });
+
+// ---------------------------------------------------------------- new commands
+
+// /daily: the same decoration for everyone until the day changes (UTC). Kept in memory, so it resets if the bot restarts.
+let daily = { day: '', d: null };
+client.commands.register({
+  name: 'daily',
+  description: 'The decoration of the day',
+  category: 'Gallery',
+  aliases: ['today'],
+  cooldown: 5,
+  async run(ctx) {
+    const day = new Date().toISOString().slice(0, 10);
+    if (daily.day !== day || !daily.d) {
+      const d = await random();
+      if (!d.found) return ctx.reply('The gallery is empty.');
+      daily = { day, d };
+    }
+    return show(ctx, daily.d, '\u2B50 Decoration of the day (' + day + ')');
+  },
+});
+
+// /compare bear santa | cat witch  -> two cards in one reply
+client.commands.register({
+  name: 'compare',
+  description: 'Show two decorations side by side, separated by |',
+  category: 'Gallery',
+  options: [{ name: 'names', rest: true, required: true, description: 'Two names separated by |' }],
+  cooldown: 5,
+  examples: ['/compare bear santa | cat witch'],
+  async run(ctx) {
+    const parts = ctx.values.names.split('|').map(s => s.trim()).filter(Boolean);
+    if (parts.length !== 2) return ctx.reply('Give me exactly two names separated by |, like /compare bear santa | cat witch');
+    const [a, b] = await Promise.all(parts.map(p => find(p)));
+    const missing = [[parts[0], a], [parts[1], b]].filter(([, d]) => !d.found).map(([p]) => '"' + p + '"');
+    if (missing.length) return ctx.reply('No decoration matches ' + missing.join(' and ') + '.');
+    try { return await ctx.reply({ embeds: [embedFor(a, true), embedFor(b, true)] }); }
+    catch (err) {
+      console.warn('Compare could not use card pictures:', err?.message || err);
+      return ctx.reply({ content: a.image + '\n' + b.image, embeds: [embedFor(a, false), embedFor(b, false)] });
+    }
+  },
+});
+
+// /link: just the page address, handy for pasting
+client.commands.register({
+  name: 'link',
+  description: 'Get the link to a decoration',
+  category: 'Gallery',
+  options: [{ name: 'name', rest: true, required: true, description: 'Part of its name' }],
+  cooldown: 3,
+  examples: ['/link bear santa'],
+  async run(ctx) {
+    const d = await find(ctx.values.name);
+    return d.found ? ctx.reply(d.title + ': ' + d.url) : ctx.reply('No decoration matches that.');
+  },
+});
+
+// /randomset: pick a set at random
+client.commands.register({
+  name: 'randomset',
+  description: 'Suggest a random set to browse',
+  category: 'Gallery',
+  cooldown: 5,
+  async run(ctx) {
+    const list = await sets();
+    if (!list.length) return ctx.reply('There are no sets yet.');
+    const [name, count] = list[Math.floor(Math.random() * list.length)];
+    return ctx.reply('Try **' + name + '** (' + count + ' decorations). Browse it at ' + GALLERY + '/gallery');
+  },
+});
+
+// /topsets: the biggest sets first
+client.commands.register({
+  name: 'topsets',
+  description: 'The biggest sets in the gallery',
+  category: 'Gallery',
+  cooldown: 5,
+  async run(ctx) {
+    const list = [...await sets()].sort((x, y) => y[1] - x[1]).slice(0, 5);
+    if (!list.length) return ctx.reply('There are no sets yet.');
+    const medals = ['\uD83E\uDD47', '\uD83E\uDD48', '\uD83E\uDD49'];
+    return ctx.reply({ embeds: [new EmbedBuilder().setTitle('Biggest sets').setColor(ORANGE)
+      .setDescription(list.map(([n, c], i) => (medals[i] || (i + 1) + '.') + ' **' + n + '** (' + c + ')').join('\n'))] });
+  },
+});
+
+// /count: how big is the gallery
+client.commands.register({
+  name: 'count',
+  description: 'How many decorations and sets there are',
+  category: 'Gallery',
+  cooldown: 5,
+  async run(ctx) {
+    const list = await sets();
+    const total = list.reduce((n, [, c]) => n + c, 0);
+    return ctx.reply('The gallery has **' + total + '** decorations in **' + list.length + '** sets.');
+  },
+});
+
+// /suggest: where to send ideas (edit the address if you have a better place)
+client.commands.register({
+  name: 'suggest',
+  description: 'How to suggest a new decoration',
+  category: 'Info',
+  run: ctx => ctx.reply('Have an idea for a decoration? Check ' + GALLERY + '/gallery to see what exists, then tell the gallery owner.'),
+});
+
+// /about and /status
+client.commands.register({
+  name: 'about',
+  description: 'About this bot',
+  category: 'Info',
+  run: ctx => ctx.reply({ embeds: [new EmbedBuilder().setTitle('Pixel Decorations bot').setURL(GALLERY + '/gallery').setColor(ORANGE)
+    .setDescription('Look up decorations from the gallery, get a random one, or recommend a set to your server.\nTry /decoration, /random, /daily, /compare or /sets. /help lists everything.')] }),
+});
+
+client.commands.register({
+  name: 'status',
+  description: 'Bot uptime and health',
+  category: 'Info',
+  cooldown: 10,
+  async run(ctx) {
+    let galleryState = 'unreachable';
+    try { const r = await fetch(GALLERY, { signal: AbortSignal.timeout(8000) }); galleryState = 'up (' + r.status + ')'; } catch {}
+    return ctx.reply('Online for ' + formatDuration(Date.now() - STARTED_AT) + ' | Gallery: ' + galleryState + ' | Node ' + process.version);
+  },
+});
+
+// ---------------------------------------------------------------- startup
 
 // Keep the bot from crashing the process (and the site, if the bot runs inside it) on a stray error.
 process.on('unhandledRejection', err => console.error('Unhandled rejection:', err?.message || err));
